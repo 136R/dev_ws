@@ -1,0 +1,7 @@
+<library path="my_bot_hw">
+  <class name="my_bot_hw/MyBotHardwareInterface" type="my_bot_hw::MyBotHardwareInterface" base_class_type="hardware_interface::SystemInterface">
+    <description>
+      Hardware interface for my_bot using STM32 via UART
+    </description>
+  </class>
+</library>
