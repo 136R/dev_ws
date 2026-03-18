@@ -83,9 +83,9 @@ hardware_interface::CallbackReturn MyBotHardwareInterface::on_init(const hardwar
   wheel_radius_ = std::stod(info_.hardware_parameters["wheel_radius"]);
   wheel_separation_ = std::stod(info_.hardware_parameters["wheel_separation"]);
 
-  hw_positions_.resize(info_.joints.size(), 0.0);
-  hw_velocities_.resize(info_.joints.size(), 0.0);
-  hw_commands_.resize(info_.joints.size(), 0.0);
+  hw_positions_.resize(2, 0.0);
+  hw_velocities_.resize(2, 0.0);
+  hw_commands_.resize(2, 0.0);
 
   return hardware_interface::CallbackReturn::SUCCESS;
 }
@@ -111,14 +111,14 @@ std::vector<hardware_interface::StateInterface> MyBotHardwareInterface::export_s
   std::vector<hardware_interface::StateInterface> state_interfaces;
 
   state_interfaces.emplace_back(hardware_interface::StateInterface(
-    "left_wheel_joint", "position", &hw_positions_[0]));
-  state_interfaces.emplace_back(hardware_interface::StateInterface(
     "left_wheel_joint", "velocity", &hw_velocities_[0]));
+  state_interfaces.emplace_back(hardware_interface::StateInterface(
+    "left_wheel_joint", "position", &hw_positions_[0]));
 
   state_interfaces.emplace_back(hardware_interface::StateInterface(
-    "right_wheel_joint", "position", &hw_positions_[1]));
-  state_interfaces.emplace_back(hardware_interface::StateInterface(
     "right_wheel_joint", "velocity", &hw_velocities_[1]));
+  state_interfaces.emplace_back(hardware_interface::StateInterface(
+    "right_wheel_joint", "position", &hw_positions_[1]));
 
   return state_interfaces;
 }
