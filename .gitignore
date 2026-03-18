@@ -3,3 +3,4 @@ install/
 log/
 docs/vendor/
 src/gz_ros2_control/
+src/articubot_one/

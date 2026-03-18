@@ -1,0 +1,11 @@
+twist_mux:
+  ros__parameters:
+    topics:
+      keyboard:
+        topic   : cmd_vel_keyboard
+        timeout : 0.5
+        priority: 90
+      nav2:
+        topic   : cmd_vel_nav
+        timeout : 0.5
+        priority: 70
