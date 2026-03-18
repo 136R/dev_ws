@@ -156,8 +156,7 @@ bool MyBotHardwareInterface::sendSpeedCommand(double linear_x, double angular_z)
 hardware_interface::CallbackReturn MyBotHardwareInterface::on_activate(const rclcpp_lifecycle::State & /*previous_state*/)
 {
   if (!sendSpeedCommand(0.0, 0.0)) {
-    RCLCPP_ERROR(rclcpp::get_logger("MyBotHardwareInterface"), "Failed to send zero speed command");
-    return hardware_interface::CallbackReturn::ERROR;
+    RCLCPP_WARN(rclcpp::get_logger("MyBotHardwareInterface"), "Failed to send zero speed command, continuing anyway");
   }
   RCLCPP_INFO(rclcpp::get_logger("MyBotHardwareInterface"), "Hardware activated");
   return hardware_interface::CallbackReturn::SUCCESS;
