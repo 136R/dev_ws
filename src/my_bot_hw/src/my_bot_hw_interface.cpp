@@ -109,22 +109,30 @@ hardware_interface::CallbackReturn MyBotHardwareInterface::on_cleanup(const rclc
 std::vector<hardware_interface::StateInterface> MyBotHardwareInterface::export_state_interfaces()
 {
   std::vector<hardware_interface::StateInterface> state_interfaces;
-  for (size_t i = 0; i < info_.joints.size(); i++) {
-    state_interfaces.emplace_back(hardware_interface::StateInterface(
-      info_.joints[i].name, "position", &hw_positions_[i]));
-    state_interfaces.emplace_back(hardware_interface::StateInterface(
-      info_.joints[i].name, "velocity", &hw_velocities_[i]));
-  }
+
+  state_interfaces.emplace_back(hardware_interface::StateInterface(
+    "left_wheel_joint", "position", &hw_positions_[0]));
+  state_interfaces.emplace_back(hardware_interface::StateInterface(
+    "left_wheel_joint", "velocity", &hw_velocities_[0]));
+
+  state_interfaces.emplace_back(hardware_interface::StateInterface(
+    "right_wheel_joint", "position", &hw_positions_[1]));
+  state_interfaces.emplace_back(hardware_interface::StateInterface(
+    "right_wheel_joint", "velocity", &hw_velocities_[1]));
+
   return state_interfaces;
 }
 
 std::vector<hardware_interface::CommandInterface> MyBotHardwareInterface::export_command_interfaces()
 {
   std::vector<hardware_interface::CommandInterface> command_interfaces;
-  for (size_t i = 0; i < info_.joints.size(); i++) {
-    command_interfaces.emplace_back(hardware_interface::CommandInterface(
-      info_.joints[i].name, "velocity", &hw_commands_[i]));
-  }
+
+  command_interfaces.emplace_back(hardware_interface::CommandInterface(
+    "left_wheel_joint", "velocity", &hw_commands_[0]));
+
+  command_interfaces.emplace_back(hardware_interface::CommandInterface(
+    "right_wheel_joint", "velocity", &hw_commands_[1]));
+
   return command_interfaces;
 }
 
