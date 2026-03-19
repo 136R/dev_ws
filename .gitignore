@@ -1,6 +1,7 @@
 build/
 install/
 log/
-docs/vendor/
+# docs/vendor/
 src/gz_ros2_control/
+src/articubot_one/
 src/articubot_one/
