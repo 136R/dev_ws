@@ -1,0 +1,42 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:arg name="serial_port" default="/dev/ttyS7"/>
+
+  <ros2_control name="Stm32SerialSystem" type="system">
+    <hardware>
+      <plugin>my_bot_hw/Stm32SerialHardware</plugin>
+      <param name="serial_port">$(arg serial_port)</param>
+      <param name="wheel_separation">0.171</param>
+      <param name="wheel_radius">0.0325</param>
+    </hardware>
+
+    <joint name="left_wheel_joint">
+      <command_interface name="velocity">
+        <param name="min">-10</param>
+        <param name="max">10</param>
+      </command_interface>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+
+    <joint name="right_wheel_joint">
+      <command_interface name="velocity">
+        <param name="min">-10</param>
+        <param name="max">10</param>
+      </command_interface>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+  </ros2_control>
+
+  <!-- imu_link: fixed to base_link at robot center (no offset for ground robot) -->
+  <!-- Included here so imu_link appears in the robot model without modifying my_bot package -->
+  <link name="imu_link"/>
+  <joint name="imu_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="imu_link"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+
+</robot>

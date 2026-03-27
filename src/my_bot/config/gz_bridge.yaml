@@ -46,6 +46,13 @@
   gz_type_name: "gz.msgs.PointCloudPacked"
   direction: GZ_TO_ROS
 
+# IMU Topics
+- ros_topic_name: "imu"
+  gz_topic_name: "imu"
+  ros_type_name: "sensor_msgs/msg/Imu"
+  gz_type_name: "gz.msgs.IMU"
+  direction: GZ_TO_ROS
+
 
 # 方式A：单独话题（优先，精确）
 - ros_topic_name: /gz/model/my_bot/pose

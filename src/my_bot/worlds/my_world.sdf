@@ -16,6 +16,9 @@
             <render_engine>ogre2</render_engine>
         </plugin>
 
+        <!-- IMU插件 -->
+        <!-- <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu" /> -->
+
         <!-- 光源 -->
         <light type="directional" name="sun">
             <cast_shadows>true</cast_shadows>

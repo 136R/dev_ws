@@ -1,0 +1,55 @@
+controller_manager:
+  ros__parameters:
+    update_rate: 50  # Hz
+
+    diff_cont:
+      type: diff_drive_controller/DiffDriveController
+
+    joint_broad:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+diff_cont:
+  ros__parameters:
+    publish_rate: 50.0
+    base_frame_id: base_footprint
+
+    left_wheel_names:  ['left_wheel_joint']
+    right_wheel_names: ['right_wheel_joint']
+
+    # Real robot dimensions (DIFFERENT from simulation!)
+    # Sim had: separation=0.35, radius=0.05
+    wheel_separation: 0.171   # meters, center-to-center (needs measurement confirmation)
+    wheel_radius: 0.0325      # meters (~32.5mm, needs measurement confirmation)
+
+    # Fine-tuning multipliers (adjust after physical calibration test)
+    wheel_separation_multiplier: 1.0047
+    
+    left_wheel_radius_multiplier: 1.005
+    right_wheel_radius_multiplier: 1.0165
+
+    use_stamped_vel: false
+
+    odom_frame_id: odom
+    base_frame_id: base_footprint
+    enable_odom_tf: false  # TF published by ekf_filter_node instead
+
+    # Stop robot if no cmd_vel received for 0.5s
+    cmd_vel_timeout: 0.5
+
+    # Velocity and acceleration limits
+    linear:
+      x:
+        has_velocity_limits: true
+        max_velocity: 0.2      # m/s
+        min_velocity: -0.2     # m/s (allow reverse)
+        has_acceleration_limits: true
+        max_acceleration: 1.5  # m/s^2
+        has_jerk_limits: false
+    angular:
+      z:
+        has_velocity_limits: true
+        max_velocity: 1.2      # rad/s
+        min_velocity: -1.2     # rad/s
+        has_acceleration_limits: true
+        max_acceleration: 2.0  # rad/s^2
+        has_jerk_limits: false
