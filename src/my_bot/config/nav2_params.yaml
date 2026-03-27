@@ -1,7 +1,7 @@
 # ============================================================
 # nav2_params.yaml
 # 基于官方 Humble 源文件修改
-# 机器人：my_bot 差速机器人 30x30x15cm / 5kg
+# 机器人：my_bot 差速机器人 12.3x14.2x9.58cm / 2kg
 # 修改标注：# [改] 表示修改项，# [官方] 表示保留原值供对比
 # ============================================================
 
@@ -110,15 +110,15 @@ controller_server:
       time_steps: 60
       model_dt: 0.05                  # 必须 = 1/controller_frequency = 0.05
       batch_size: 2000
-      ax_max: 3.0
+      ax_max: 1.5
       ax_min: -3.0
       ay_max: 3.0
-      az_max: 3.5
+      az_max: 2.0
       vx_std: 0.2
       vy_std: 0.0
       wz_std: 0.4
       vx_max: 0.4                     # [改] 官方 0.26 → 0.4，机器人最大线速度
-      vx_min: -0.3                    # [改] 官方无倒车 → 允许倒车 -0.3
+      vx_min: -0.4                    # [改] 官方无倒车 → 允许倒车 -0.4
       vy_max: 0.0
       wz_max: 1.2                     # [改] 官方 1.0 → 1.2，机器人最大角速度
       iteration_count: 1
@@ -144,7 +144,7 @@ controller_server:
         cost_power: 1
         cost_weight: 3.81
         critical_cost: 300.0
-        consider_footprint: false     # [重要] 使用 robot_radius 圆形时必须为 false
+        consider_footprint: true     # [重要] 使用 robot_radius 圆形时必须为 false
         collision_cost: 1000000.0
         near_goal_distance: 1.0
         trajectory_point_step: 2
@@ -161,7 +161,7 @@ controller_server:
       PathAlignCritic:
         enabled: true
         cost_power: 1
-        cost_weight: 14.0
+        cost_weight: 10.0           # 路径对齐权重,更灵敏的避障减
         max_path_occupancy_ratio: 0.05
         trajectory_point_step: 4
         threshold_to_consider: 0.5
@@ -202,12 +202,15 @@ local_costmap:
       width: 3
       height: 3
       resolution: 0.05
-      robot_radius: 0.15              # [改] 官方 0.22（TB3）→ 0.15（my_bot 内切圆半径）
+
+      # robot_radius: 0.15              # [改] 官方 0.22（TB3）→ 0.15（my_bot 内切圆半径）
+      footprint: "[[0.034, 0.082], [-0.089, 0.082], [-0.089, -0.082], [0.034, -0.082]]"
+
       plugins: ["voxel_layer", "inflation_layer"]
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 3.0
-        inflation_radius: 0.30        # [改] 官方 0.55 → 0.30（robot_radius + 0.15 安全余量）
+        inflation_radius: 0.25        # [改] 官方 0.55 → 0.30（robot_radius + 0.15 安全余量）
       voxel_layer:
         plugin: "nav2_costmap_2d::VoxelLayer"
         enabled: True
@@ -244,7 +247,10 @@ global_costmap:
       global_frame: map
       robot_base_frame: base_link
       use_sim_time: True
-      robot_radius: 0.15              # [改] 官方 0.22 → 0.15
+
+      # robot_radius: 0.15              # [改] 官方 0.22 → 0.15
+      footprint: "[[0.15, 0.15], [0.15, -0.15], [-0.15, -0.15], [-0.15, 0.15]]"
+
       resolution: 0.05
       track_unknown_space: true
       plugins: ["static_layer", "obstacle_layer", "inflation_layer"]

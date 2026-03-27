@@ -9,5 +9,6 @@
         "/opt/ros/humble/local/lib/python3.10/dist-packages"
     ],
     "cmake.sourceDirectory": "/home/bingda/dev_ws/src/articubot_one",
-    "commentTranslate.source": "Google"
+    "commentTranslate.source": "Google",
+    "ros.distro": "humble"
 }
