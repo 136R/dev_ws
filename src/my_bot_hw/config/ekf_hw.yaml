@@ -1,38 +1,38 @@
 ekf_filter_node:
   ros__parameters:
     frequency: 50.0
-    transform_time_offset: 0.03 # TF发布允许延迟
-    sensor_timeout: 0.08   # = 2 × IMU周期(40ms)；允许1个包缺失不误报
+    transform_time_offset: 0.03
+    sensor_timeout: 0.08    # 2 × IMU 周期(40ms)，允许 1 帧丢失
     two_d_mode: true
 
     odom_frame: odom
     base_link_frame: base_footprint
     world_frame: odom
-    publish_tf: true         # EKF publishes odom→base_footprint TF (diff_cont has enable_odom_tf: false)
+    publish_tf: true
     print_diagnostics: true
 
-    # Source 1: wheel encoder odometry via diff_drive_controller
-    # Only use vx (linear velocity) — let IMU handle heading
+    # ── Source 1: 轮式编码器里程计（diff_drive_controller 输出）──────────────
+    # 只使用 vx（线速度），航向完全交给 IMU 处理
     odom0: /odom
-    odom0_config: [false, false, false,  # x y z      (EKF integrates position)
-                   false, false, false,  # roll pitch yaw
-                   true,  false, false,  # vx vy vz   ← encoder linear velocity
-                   false, false, false,  # angular velocity (delegated to IMU)
-                   false, false, false]  # acceleration
+    odom0_config: [false, false, false,   # x y z
+                   false, false, false,   # roll pitch yaw
+                   true,  false, false,   # vx vy vz ← 编码器线速度
+                   false, false, false,   # 角速度（交给 IMU）
+                   false, false, false]   # 加速度
     odom0_differential: false
     odom0_relative: false
     odom0_queue_size: 5
 
-    # Source 2: STM32 INS heading (published via /imu)
-    # angular_velocity.z comes from encoder kinematics (same source as odom0) — NOT used
-    # orientation.yaw comes from STM32 internal INS (QMB658C fused) — independent, IS used
+    # ── Source 2: 9 轴 IMU（由 STM32 上的独立 IMU 模块解算）────────────────
+    # 融合: 绝对姿态（roll/pitch/yaw）+ 三轴角速度 + 线加速度 X/Y
+    # imu0_differential 必须为 false，因为 IMU 模块输出绝对姿态四元数（非增量）
     imu0: /imu
-    imu0_config: [false, false, false,  # x y z
-                  false, false, true,   # roll pitch yaw ← INS absolute heading (independent)
-                  false, false, false,  # linear velocity
-                  false, false, false,  # angular velocity z ← encoder-derived, redundant with odom0
-                  false, false, false]  # acceleration
-    imu0_differential: true
+    imu0_config: [false, false, false,   # x y z
+                  true,  true,  true,    # roll pitch yaw ← 绝对姿态（IMU 模块内部解算）
+                  false, false, false,   # 线速度
+                  true,  true,  true,    # 三轴角速度 ← 真实陀螺仪测量
+                  true,  true,  false]   # ax ay az ← Z 轴不融合（避免重力干扰）
+    imu0_differential: false            # 绝对姿态，不做差分
     imu0_relative: false
     imu0_queue_size: 5
-    imu0_remove_gravitational_acceleration: true
+    imu0_remove_gravitational_acceleration: true   # 在融合线加速度前去除重力分量

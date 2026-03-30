@@ -18,7 +18,9 @@
 namespace my_bot_hw
 {
 
-// ─────────────────────────── Lifecycle ───────────────────────────
+// ═══════════════════════════════════════════════════════════════
+//  Lifecycle
+// ═══════════════════════════════════════════════════════════════
 
 hardware_interface::CallbackReturn Stm32SerialHardware::on_init(
   const hardware_interface::HardwareInfo & info)
@@ -39,11 +41,21 @@ hardware_interface::CallbackReturn Stm32SerialHardware::on_init(
   if (info_.hardware_parameters.count("wheel_radius")) {
     wheel_radius_ = std::stod(info_.hardware_parameters.at("wheel_radius"));
   }
+  // Optional: override IMU scale factors from URDF if needed
+  if (info_.hardware_parameters.count("imu_gyro_scale")) {
+    imu_gyro_scale_ = std::stod(info_.hardware_parameters.at("imu_gyro_scale"));
+  }
+  if (info_.hardware_parameters.count("imu_accel_scale")) {
+    imu_accel_scale_ = std::stod(info_.hardware_parameters.at("imu_accel_scale"));
+  }
+  if (info_.hardware_parameters.count("imu_quat_scale")) {
+    imu_quat_scale_ = std::stod(info_.hardware_parameters.at("imu_quat_scale"));
+  }
 
-  RCLCPP_INFO(logger_, "serial_port=%s  wheel_sep=%.4f  wheel_radius=%.4f",
+  RCLCPP_INFO(logger_,
+    "serial_port=%s  wheel_sep=%.4f  wheel_radius=%.4f",
     serial_port_.c_str(), wheel_separation_, wheel_radius_);
 
-  // Resolve joint indices by name (defensive: do not assume ordering)
   if (info_.joints.size() != 2) {
     RCLCPP_ERROR(logger_, "Expected 2 joints, got %zu", info_.joints.size());
     return hardware_interface::CallbackReturn::ERROR;
@@ -58,7 +70,6 @@ hardware_interface::CallbackReturn Stm32SerialHardware::on_init(
 
   hw_states_.fill(0.0);
   hw_commands_.fill(0.0);
-
   return hardware_interface::CallbackReturn::SUCCESS;
 }
 
@@ -69,7 +80,7 @@ hardware_interface::CallbackReturn Stm32SerialHardware::on_configure(
     RCLCPP_ERROR(logger_, "Failed to open serial port: %s", serial_port_.c_str());
     return hardware_interface::CallbackReturn::ERROR;
   }
-  RCLCPP_INFO(logger_, "Opened serial port: %s", serial_port_.c_str());
+  RCLCPP_INFO(logger_, "Opened serial port %s at 460800 baud", serial_port_.c_str());
   return hardware_interface::CallbackReturn::SUCCESS;
 }
 
@@ -78,23 +89,33 @@ hardware_interface::CallbackReturn Stm32SerialHardware::on_activate(
 {
   hw_states_.fill(0.0);
   hw_commands_.fill(0.0);
+  last_wheel_ts_ = 0;
 
-  // Create a standalone ROS node for IMU publishing (hardware interface has no built-in publisher API)
+  // IMU publisher node
   imu_node_ = std::make_shared<rclcpp::Node>("stm32_imu_publisher");
-  imu_pub_ = imu_node_->create_publisher<sensor_msgs::msg::Imu>("/imu", 10);
+  imu_pub_  = imu_node_->create_publisher<sensor_msgs::msg::Imu>("/imu", 10);
 
-  RCLCPP_INFO(logger_, "Hardware activated, IMU publisher ready on /imu");
+  // Start background reader thread
+  reader_running_.store(true);
+  reader_thread_ = std::thread(&Stm32SerialHardware::reader_thread_func, this);
+
+  RCLCPP_INFO(logger_, "Hardware activated — streaming from STM32 at 50 Hz");
   return hardware_interface::CallbackReturn::SUCCESS;
 }
 
 hardware_interface::CallbackReturn Stm32SerialHardware::on_deactivate(
   const rclcpp_lifecycle::State & /*previous_state*/)
 {
-  // Send zero velocity to stop the robot
-  auto stop_frame = build_frame(0x01, {0x00, 0x00, 0x00, 0x00, 0x00, 0x00});
-  serial_write(stop_frame);
+  // Stop reader thread
+  reader_running_.store(false);
+  if (reader_thread_.joinable()) {
+    reader_thread_.join();
+  }
 
-  // Clean up IMU publisher
+  // Send zero-RPM command to stop robot
+  std::vector<uint8_t> data = {0x00, 0x00, 0x00, 0x00};
+  serial_write(build_frame(0x01, data));
+
   imu_pub_.reset();
   imu_node_.reset();
 
@@ -113,24 +134,28 @@ hardware_interface::CallbackReturn Stm32SerialHardware::on_cleanup(
 hardware_interface::CallbackReturn Stm32SerialHardware::on_shutdown(
   const rclcpp_lifecycle::State & /*previous_state*/)
 {
+  reader_running_.store(false);
+  if (reader_thread_.joinable()) {
+    reader_thread_.join();
+  }
   close_serial();
   return hardware_interface::CallbackReturn::SUCCESS;
 }
 
-// ─────────────────────────── Interface exports ───────────────────────────
+// ═══════════════════════════════════════════════════════════════
+//  Interface exports
+// ═══════════════════════════════════════════════════════════════
 
 std::vector<hardware_interface::StateInterface>
 Stm32SerialHardware::export_state_interfaces()
 {
   std::vector<hardware_interface::StateInterface> interfaces;
-  // hw_states_[0] = left position, [1] = right position
-  // hw_states_[2] = left velocity, [3] = right velocity
   interfaces.emplace_back(
-    info_.joints[left_idx_].name, hardware_interface::HW_IF_POSITION, &hw_states_[0]);
+    info_.joints[left_idx_].name,  hardware_interface::HW_IF_POSITION, &hw_states_[0]);
   interfaces.emplace_back(
     info_.joints[right_idx_].name, hardware_interface::HW_IF_POSITION, &hw_states_[1]);
   interfaces.emplace_back(
-    info_.joints[left_idx_].name, hardware_interface::HW_IF_VELOCITY, &hw_states_[2]);
+    info_.joints[left_idx_].name,  hardware_interface::HW_IF_VELOCITY, &hw_states_[2]);
   interfaces.emplace_back(
     info_.joints[right_idx_].name, hardware_interface::HW_IF_VELOCITY, &hw_states_[3]);
   return interfaces;
@@ -140,82 +165,87 @@ std::vector<hardware_interface::CommandInterface>
 Stm32SerialHardware::export_command_interfaces()
 {
   std::vector<hardware_interface::CommandInterface> interfaces;
-  // hw_commands_[0] = left wheel velocity cmd [rad/s]
-  // hw_commands_[1] = right wheel velocity cmd [rad/s]
   interfaces.emplace_back(
-    info_.joints[left_idx_].name, hardware_interface::HW_IF_VELOCITY, &hw_commands_[0]);
+    info_.joints[left_idx_].name,  hardware_interface::HW_IF_VELOCITY, &hw_commands_[0]);
   interfaces.emplace_back(
     info_.joints[right_idx_].name, hardware_interface::HW_IF_VELOCITY, &hw_commands_[1]);
   return interfaces;
 }
 
-// ─────────────────────────── Control loop ───────────────────────────
+// ═══════════════════════════════════════════════════════════════
+//  Control loop
+// ═══════════════════════════════════════════════════════════════
 
 hardware_interface::return_type Stm32SerialHardware::read(
-  const rclcpp::Time & time, const rclcpp::Duration & period)
+  const rclcpp::Time & time, const rclcpp::Duration & /*period*/)
 {
-  // Send odometry query (0x09)
-  auto query = build_frame(0x09, {});
-  if (!serial_write(query)) {
-    RCLCPP_WARN_THROTTLE(logger_, *rclcpp::Clock::make_shared(), 2000,
-      "Failed to send odometry query to STM32");
-    return hardware_interface::return_type::OK;  // non-fatal: keep last state
+  // ── Copy latest wheel state ────────────────────────────────────────
+  WheelState wheel_copy;
+  ImuState   imu_copy;
+  {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    wheel_copy = latest_wheel_;
+    imu_copy   = latest_imu_;
+    latest_wheel_.fresh = false;
+    latest_imu_.fresh   = false;
   }
 
-  // Read 0x0A response with 18ms timeout (leaves margin in 20ms cycle)
-  auto raw = read_odom_frame(18);
-  if (raw.empty()) {
-    RCLCPP_WARN_THROTTLE(logger_, *rclcpp::Clock::make_shared(), 2000,
-      "Odometry response timeout from STM32");
-    return hardware_interface::return_type::OK;
+  if (wheel_copy.fresh) {
+    hw_states_[2] = wheel_copy.left_rads;
+    hw_states_[3] = wheel_copy.right_rads;
+
+    // Use hardware timestamp for precise position integration
+    if (last_wheel_ts_ != 0) {
+      // uint32_t subtraction handles wrapping correctly
+      uint32_t dt_us = wheel_copy.timestamp_us - last_wheel_ts_;
+      double dt_s    = static_cast<double>(dt_us) * 1e-6;
+      if (dt_s > 0.0 && dt_s < 0.5) {  // sanity: dt must be in (0, 500ms)
+        hw_states_[0] += hw_states_[2] * dt_s;  // left  position  [rad]
+        hw_states_[1] += hw_states_[3] * dt_s;  // right position  [rad]
+      }
+    }
+    last_wheel_ts_ = wheel_copy.timestamp_us;
   }
 
-  OdomFrame odom = parse_odom_frame(raw);
-  if (!odom.valid) {
-    RCLCPP_WARN_THROTTLE(logger_, *rclcpp::Clock::make_shared(), 2000,
-      "Invalid CRC in STM32 odometry frame");
-    return hardware_interface::return_type::OK;
-  }
+  // ── Publish /imu (from control thread — safe for ROS2 publisher) ───
+  if (imu_copy.fresh && imu_pub_) {
+    sensor_msgs::msg::Imu msg;
+    msg.header.stamp    = time;
+    msg.header.frame_id = "imu_link";
 
-  // Decompose chassis vx/vyaw → left/right wheel velocities [m/s]
-  // For differential drive:
-  //   v_left  = vx - vyaw * (wheel_sep / 2)
-  //   v_right = vx + vyaw * (wheel_sep / 2)
-  double half_sep = wheel_separation_ / 2.0;
-  double v_left_mps  = odom.vx - odom.vyaw * half_sep;
-  double v_right_mps = odom.vx + odom.vyaw * half_sep;
+    // Orientation from XKF3 quaternion (q = [w, x, y, z])
+    msg.orientation.w = imu_copy.quat[0];
+    msg.orientation.x = imu_copy.quat[1];
+    msg.orientation.y = imu_copy.quat[2];
+    msg.orientation.z = imu_copy.quat[3];
+    // Covariance: diagonal, tuned to IMU module accuracy (adjust after testing)
+    msg.orientation_covariance = {
+      0.01, 0.0,  0.0,
+      0.0,  0.01, 0.0,
+      0.0,  0.0,  0.05  // yaw slightly less accurate
+    };
 
-  // Convert m/s → rad/s for joint velocity state
-  hw_states_[2] = v_left_mps  / wheel_radius_;  // left  velocity [rad/s]
-  hw_states_[3] = v_right_mps / wheel_radius_;  // right velocity [rad/s]
+    // Angular velocity [rad/s]
+    msg.angular_velocity.x = imu_copy.gyro[0];
+    msg.angular_velocity.y = imu_copy.gyro[1];
+    msg.angular_velocity.z = imu_copy.gyro[2];
+    msg.angular_velocity_covariance = {
+      0.02, 0.0,  0.0,
+      0.0,  0.02, 0.0,
+      0.0,  0.0,  0.02
+    };
 
-  // Integrate wheel positions [rad]
-  double dt = period.seconds();
-  hw_states_[0] += hw_states_[2] * dt;  // left  position
-  hw_states_[1] += hw_states_[3] * dt;  // right position
+    // Linear acceleration [m/s²]
+    msg.linear_acceleration.x = imu_copy.acc[0];
+    msg.linear_acceleration.y = imu_copy.acc[1];
+    msg.linear_acceleration.z = imu_copy.acc[2];
+    msg.linear_acceleration_covariance = {
+      0.05, 0.0,  0.0,
+      0.0,  0.05, 0.0,
+      0.0,  0.0,  0.05
+    };
 
-  // ── Build /imu message from 0x0A frame (yaw orientation + angular velocity z) ──
-  // odom.vyaw is a direct angular velocity measurement [rad/s]
-  // odom.yaw_deg is the STM32 accumulated heading [deg]
-  if (imu_pub_) {
-    double yaw_rad = odom.yaw_deg * M_PI / 180.0;
-    // pitch and roll not available from 0x0A; for a ground robot they are ~0
-    double cy = std::cos(yaw_rad * 0.5), sy = std::sin(yaw_rad * 0.5);
-    // cp = cos(0) = 1, sp = sin(0) = 0, cr = cos(0) = 1, sr = sin(0) = 0
-    // Simplifies to pure-yaw quaternion: w=cy, x=0, y=0, z=sy
-    sensor_msgs::msg::Imu imu_msg;
-    imu_msg.header.stamp    = time;
-    imu_msg.header.frame_id = "imu_link";
-    imu_msg.orientation.w = cy;
-    imu_msg.orientation.x = 0.0;
-    imu_msg.orientation.y = 0.0;
-    imu_msg.orientation.z = sy;
-    imu_msg.orientation_covariance = {0.01, 0, 0,  0, 0.01, 0,  0, 0, 0.01};
-    imu_msg.angular_velocity.z = odom.vyaw;  // rad/s, direct measurement from STM32
-    imu_msg.angular_velocity_covariance = {0.001, 0, 0,  0, 0.001, 0,  0, 0, 0.001};
-    // No linear acceleration data from 0x0A — signal EKF to ignore
-    imu_msg.linear_acceleration_covariance[0] = -1.0;
-    imu_pub_->publish(imu_msg);
+    imu_pub_->publish(msg);
   }
 
   return hardware_interface::return_type::OK;
@@ -224,48 +254,138 @@ hardware_interface::return_type Stm32SerialHardware::read(
 hardware_interface::return_type Stm32SerialHardware::write(
   const rclcpp::Time & /*time*/, const rclcpp::Duration & /*period*/)
 {
-  // hw_commands_ are in rad/s from diff_drive_controller
-  double v_left_rads  = hw_commands_[0];
-  double v_right_rads = hw_commands_[1];
+  // hw_commands_ come from diff_drive_controller in [rad/s]
+  double left_rads  = hw_commands_[left_idx_];
+  double right_rads = hw_commands_[right_idx_];
 
-  // Convert rad/s → m/s
-  double v_left_mps  = v_left_rads  * wheel_radius_;
-  double v_right_mps = v_right_rads * wheel_radius_;
+  // rad/s → RPM: RPM = ω × 60 / (2π)
+  double left_rpm  = left_rads  * 60.0 / (2.0 * M_PI);
+  double right_rpm = right_rads * 60.0 / (2.0 * M_PI);
 
-  // Compute chassis linear and angular velocity
-  double vx   = (v_left_mps + v_right_mps) / 2.0;
-  double vyaw = (v_right_mps - v_left_mps) / wheel_separation_;
-
-  // Scale to int16 (*1000), clamp to int16 range
+  // Scale by ×10 → int16, clamp to int16 range
   auto to_int16 = [](double v) -> int16_t {
     return static_cast<int16_t>(
-      std::clamp(v * 1000.0, static_cast<double>(INT16_MIN), static_cast<double>(INT16_MAX)));
+      std::clamp(v * 10.0,
+        static_cast<double>(INT16_MIN),
+        static_cast<double>(INT16_MAX)));
   };
 
-  int16_t vx_cmd   = to_int16(vx);
-  int16_t vy_cmd   = 0;  // differential drive has no lateral velocity
-  int16_t vyaw_cmd = to_int16(vyaw);
+  int16_t l = to_int16(left_rpm);
+  int16_t r = to_int16(right_rpm);
 
-  // Pack big-endian (MSB first, per protocol: "Byte1=X MSB, Byte2=X LSB")
+  // Pack big-endian into 4-byte data field
   std::vector<uint8_t> data = {
-    static_cast<uint8_t>((vx_cmd   >> 8) & 0xFF),
-    static_cast<uint8_t>( vx_cmd         & 0xFF),
-    static_cast<uint8_t>((vy_cmd   >> 8) & 0xFF),
-    static_cast<uint8_t>( vy_cmd         & 0xFF),
-    static_cast<uint8_t>((vyaw_cmd >> 8) & 0xFF),
-    static_cast<uint8_t>( vyaw_cmd       & 0xFF),
+    static_cast<uint8_t>((l >> 8) & 0xFF),
+    static_cast<uint8_t>( l       & 0xFF),
+    static_cast<uint8_t>((r >> 8) & 0xFF),
+    static_cast<uint8_t>( r       & 0xFF),
   };
 
   auto frame = build_frame(0x01, data);
   if (!serial_write(frame)) {
     RCLCPP_WARN_THROTTLE(logger_, *rclcpp::Clock::make_shared(), 2000,
-      "Failed to send velocity command to STM32");
+      "Failed to send RPM command to STM32");
   }
 
   return hardware_interface::return_type::OK;
 }
 
-// ─────────────────────────── Serial helpers ───────────────────────────
+// ═══════════════════════════════════════════════════════════════
+//  Background reader thread
+// ═══════════════════════════════════════════════════════════════
+
+void Stm32SerialHardware::reader_thread_func()
+{
+  // Frame parser state machine
+  enum ParseState { WAIT_HEADER, READ_LEN, READ_BODY };
+  ParseState state = WAIT_HEADER;
+
+  uint8_t  frame_buf[64];
+  uint8_t  frame_idx      = 0;
+  uint8_t  expected_len   = 0;
+
+  while (reader_running_.load()) {
+    uint8_t byte;
+    if (!read_byte(byte, 100)) {
+      continue;  // timeout — loop back to check reader_running_
+    }
+
+    switch (state) {
+      case WAIT_HEADER:
+        if (byte == 0x5A) {
+          frame_buf[0] = byte;
+          frame_idx    = 1;
+          state        = READ_LEN;
+        }
+        break;
+
+      case READ_LEN:
+        frame_buf[frame_idx++] = byte;
+        expected_len = byte;
+        // Sanity check: valid frame lengths in this protocol are 14 (0x04) and 36 (0x06)
+        if (expected_len == 14 || expected_len == 36) {
+          state = READ_BODY;
+        } else {
+          // Unknown length — reset
+          state = WAIT_HEADER;
+        }
+        break;
+
+      case READ_BODY:
+        frame_buf[frame_idx++] = byte;
+        if (frame_idx >= expected_len) {
+          // Full frame received — validate and dispatch
+          std::vector<uint8_t> raw(frame_buf, frame_buf + expected_len);
+          uint8_t crc_expected = crc8_maxim(raw.data(), expected_len - 1);
+
+          if (raw[expected_len - 1] == crc_expected && raw[2] == 0x01) {
+            uint8_t func = raw[3];
+
+            if (func == 0x04 && expected_len == 14) {
+              WheelRpmFrame f = parse_wheel_rpm_frame(raw);
+              if (f.valid) {
+                std::lock_guard<std::mutex> lock(state_mutex_);
+                latest_wheel_.timestamp_us = f.timestamp_us;
+                // RPM → rad/s: ω = RPM × 2π / 60
+                latest_wheel_.left_rads  = f.left_rpm  * (2.0 * M_PI / 60.0);
+                latest_wheel_.right_rads = f.right_rpm * (2.0 * M_PI / 60.0);
+                latest_wheel_.fresh      = true;
+              }
+            } else if (func == 0x06 && expected_len == 36) {
+              ImuRawFrame f = parse_imu_raw_frame(raw);
+              if (f.valid) {
+                std::lock_guard<std::mutex> lock(state_mutex_);
+                latest_imu_.timestamp_us = f.timestamp_us;
+
+                // Apply scale factors (verify against IMU module datasheet)
+                for (int i = 0; i < 3; i++) {
+                  latest_imu_.acc[i]  = f.acc[i]  * imu_accel_scale_;
+                  latest_imu_.gyro[i] = f.gyro[i] * imu_gyro_scale_;
+                }
+                latest_imu_.roll_deg  = f.roll  * imu_angle_scale_;
+                latest_imu_.pitch_deg = f.pitch * imu_angle_scale_;
+                latest_imu_.yaw_deg   = f.yaw   * imu_angle_scale_;
+
+                // Quaternion [W, X, Y, Z]
+                latest_imu_.quat[0] = f.quat[0] * imu_quat_scale_;
+                latest_imu_.quat[1] = f.quat[1] * imu_quat_scale_;
+                latest_imu_.quat[2] = f.quat[2] * imu_quat_scale_;
+                latest_imu_.quat[3] = f.quat[3] * imu_quat_scale_;
+                latest_imu_.fresh   = true;
+              }
+            }
+          }
+          // Reset for next frame
+          state = WAIT_HEADER;
+        }
+        break;
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  Serial helpers
+// ═══════════════════════════════════════════════════════════════
 
 bool Stm32SerialHardware::open_serial(const std::string & port)
 {
@@ -283,12 +403,12 @@ bool Stm32SerialHardware::open_serial(const std::string & port)
     return false;
   }
 
-  // 115200 8N1, raw mode, no flow control
+  // 460800 8N1 raw mode
   cfmakeraw(&tty);
-  cfsetispeed(&tty, B115200);
-  cfsetospeed(&tty, B115200);
+  cfsetispeed(&tty, B460800);
+  cfsetospeed(&tty, B460800);
   tty.c_cc[VMIN]  = 0;
-  tty.c_cc[VTIME] = 0;  // non-blocking reads; we use select() for timeouts
+  tty.c_cc[VTIME] = 0;  // non-blocking; select() used for timeouts
 
   if (tcsetattr(serial_fd_, TCSANOW, &tty) != 0) {
     RCLCPP_ERROR(logger_, "tcsetattr failed: %s", strerror(errno));
@@ -297,7 +417,7 @@ bool Stm32SerialHardware::open_serial(const std::string & port)
     return false;
   }
 
-  tcflush(serial_fd_, TCIOFLUSH);  // flush stale data
+  tcflush(serial_fd_, TCIOFLUSH);
   return true;
 }
 
@@ -311,65 +431,28 @@ void Stm32SerialHardware::close_serial()
 
 bool Stm32SerialHardware::serial_write(const std::vector<uint8_t> & data)
 {
-  if (serial_fd_ < 0) {return false;}
+  if (serial_fd_ < 0) { return false; }
   ssize_t written = ::write(serial_fd_, data.data(), data.size());
   return written == static_cast<ssize_t>(data.size());
 }
 
-std::vector<uint8_t> Stm32SerialHardware::serial_read_timeout(
-  size_t expected_len, int timeout_ms)
+bool Stm32SerialHardware::read_byte(uint8_t & byte, int timeout_ms)
 {
-  std::vector<uint8_t> buf;
-  buf.reserve(expected_len);
+  if (serial_fd_ < 0) { return false; }
 
-  auto deadline_us = static_cast<int64_t>(timeout_ms) * 1000;
+  fd_set fds;
+  FD_ZERO(&fds);
+  FD_SET(serial_fd_, &fds);
 
-  while (buf.size() < expected_len && deadline_us > 0) {
-    fd_set fds;
-    FD_ZERO(&fds);
-    FD_SET(serial_fd_, &fds);
+  struct timeval tv{};
+  tv.tv_sec  = timeout_ms / 1000;
+  tv.tv_usec = (timeout_ms % 1000) * 1000;
 
-    struct timeval tv{};
-    tv.tv_sec  = deadline_us / 1000000;
-    tv.tv_usec = deadline_us % 1000000;
+  int ret = select(serial_fd_ + 1, &fds, nullptr, nullptr, &tv);
+  if (ret <= 0) { return false; }
 
-    int ret = select(serial_fd_ + 1, &fds, nullptr, nullptr, &tv);
-    if (ret <= 0) {break;}  // timeout or error
-
-    uint8_t byte;
-    ssize_t n = ::read(serial_fd_, &byte, 1);
-    if (n > 0) {
-      buf.push_back(byte);
-      deadline_us -= 1000;  // rough accounting; select updates tv on Linux
-    }
-  }
-  return buf;
-}
-
-std::vector<uint8_t> Stm32SerialHardware::read_odom_frame(int timeout_ms)
-{
-  if (serial_fd_ < 0) {return {};}
-
-  // Drain until we find 0x5A start byte, then read 11 more bytes
-  auto deadline_ms = timeout_ms;
-
-  while (deadline_ms > 0) {
-    auto header = serial_read_timeout(1, std::min(deadline_ms, 5));
-    deadline_ms -= 5;
-    if (header.empty()) {continue;}
-    if (header[0] != 0x5A) {continue;}  // skip garbage
-
-    // Read remaining 11 bytes of the 12-byte frame
-    auto rest = serial_read_timeout(11, deadline_ms);
-    if (rest.size() != 11) {return {};}
-
-    std::vector<uint8_t> frame;
-    frame.reserve(12);
-    frame.push_back(0x5A);
-    frame.insert(frame.end(), rest.begin(), rest.end());
-    return frame;
-  }
-  return {};
+  ssize_t n = ::read(serial_fd_, &byte, 1);
+  return n == 1;
 }
 
 }  // namespace my_bot_hw

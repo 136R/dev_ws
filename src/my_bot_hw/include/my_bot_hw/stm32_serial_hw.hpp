@@ -4,7 +4,10 @@
 #pragma once
 
 #include <array>
+#include <atomic>
+#include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "hardware_interface/system_interface.hpp"
@@ -52,26 +55,66 @@ public:
     const rclcpp::Time & time, const rclcpp::Duration & period) override;
 
 private:
-  // ── Serial helpers ─────────────────────────────────────────────────
+  // ── Serial low-level helpers ───────────────────────────────────────
   bool open_serial(const std::string & port);
   void close_serial();
   bool serial_write(const std::vector<uint8_t> & data);
-  std::vector<uint8_t> serial_read_timeout(size_t expected_len, int timeout_ms);
-  std::vector<uint8_t> read_odom_frame(int timeout_ms);
+
+  // ── Background reader thread ───────────────────────────────────────
+  // Runs continuously; parses 0x04 / 0x06 broadcast frames from STM32.
+  // Updates latest_wheel_ and latest_imu_ under state_mutex_.
+  void reader_thread_func();
+
+  // Byte-level helpers used by reader thread
+  // Returns true if a byte was read within timeout_ms; false on timeout/error.
+  bool read_byte(uint8_t & byte, int timeout_ms);
 
   // ── Parameters (from URDF <param>) ────────────────────────────────
   std::string serial_port_{"/dev/ttyS7"};
   double wheel_separation_{0.171};
   double wheel_radius_{0.0325};
 
+  // IMU physical scale factors (must match STM32 Config.h)
+  double imu_gyro_scale_{0.1 * 0.01745329};    // 0.1 dps/LSB → rad/s
+  double imu_accel_scale_{9.80665 / 1000.0};   // 1 mg/LSB → m/s²
+  double imu_quat_scale_{1.0 / 32768.0};       // Q15
+  double imu_angle_scale_{0.1};                // 0.1 °/LSB
+
   // ── Hardware state ─────────────────────────────────────────────────
   int serial_fd_{-1};
   size_t left_idx_{0};
   size_t right_idx_{1};
-  std::array<double, 4> hw_states_{};   // [0]=left_pos [1]=right_pos [2]=left_vel [3]=right_vel
-  std::array<double, 2> hw_commands_{}; // [0]=left_vel_cmd [1]=right_vel_cmd
+  std::array<double, 4> hw_states_{};    // [0]=left_pos [1]=right_pos [2]=left_vel [3]=right_vel
+  std::array<double, 2> hw_commands_{}; // [0]=left_vel_cmd [1]=right_vel_cmd [rad/s]
 
-  // ── IMU publisher (standalone node, derives data from 0x0A frame) ─
+  // ── Background reader thread ───────────────────────────────────────
+  std::thread reader_thread_;
+  std::atomic<bool> reader_running_{false};
+
+  // ── Shared state (protected by state_mutex_) ───────────────────────
+  std::mutex state_mutex_;
+
+  struct WheelState {
+    uint32_t timestamp_us{0};
+    double   left_rads{0.0};
+    double   right_rads{0.0};
+    bool     fresh{false};
+  } latest_wheel_;
+
+  struct ImuState {
+    uint32_t timestamp_us{0};
+    double   acc[3]{0.0, 0.0, 0.0};    // [m/s²]
+    double   gyro[3]{0.0, 0.0, 0.0};   // [rad/s]
+    double   roll_deg{0.0};
+    double   pitch_deg{0.0};
+    double   yaw_deg{0.0};
+    double   quat[4]{1.0, 0.0, 0.0, 0.0};  // [w, x, y, z]
+    bool     fresh{false};
+  } latest_imu_;
+
+  uint32_t last_wheel_ts_{0};  // for precise dt integration
+
+  // ── IMU publisher ──────────────────────────────────────────────────
   std::shared_ptr<rclcpp::Node> imu_node_;
   rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr imu_pub_;
 
