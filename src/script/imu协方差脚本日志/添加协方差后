@@ -1,0 +1,208 @@
+orangepi@orangepi5pro:~/dev_ws$ ./src/script/imu_covariance_probe.py --duration 60 --raw-topic /imu/data_raw --fused-topic /imu/data
+[INFO] [1775634342.603943770] [imu_covariance_probe]: Listening live for 60.0s: raw=/imu/data_raw, fused=/imu/data. Keep robot still.
+[INFO] [1775634343.080637956] [imu_covariance_probe]: elapsed=  0.5s raw_samples=  25 fused_samples=  24
+[INFO] [1775634343.578938355] [imu_covariance_probe]: elapsed=  1.0s raw_samples=  50 fused_samples=  49
+[INFO] [1775634344.080337331] [imu_covariance_probe]: elapsed=  1.5s raw_samples=  75 fused_samples=  75
+[INFO] [1775634344.576469263] [imu_covariance_probe]: elapsed=  2.0s raw_samples= 100 fused_samples= 100
+[INFO] [1775634345.076375512] [imu_covariance_probe]: elapsed=  2.5s raw_samples= 125 fused_samples= 125
+[INFO] [1775634345.580114286] [imu_covariance_probe]: elapsed=  3.0s raw_samples= 150 fused_samples= 149
+[INFO] [1775634346.076351133] [imu_covariance_probe]: elapsed=  3.5s raw_samples= 175 fused_samples= 175
+[INFO] [1775634346.576502836] [imu_covariance_probe]: elapsed=  4.0s raw_samples= 200 fused_samples= 200
+[INFO] [1775634347.076368128] [imu_covariance_probe]: elapsed=  4.5s raw_samples= 225 fused_samples= 225
+[INFO] [1775634347.576358542] [imu_covariance_probe]: elapsed=  5.0s raw_samples= 250 fused_samples= 250
+[INFO] [1775634348.076289166] [imu_covariance_probe]: elapsed=  5.5s raw_samples= 275 fused_samples= 275
+[INFO] [1775634348.576421037] [imu_covariance_probe]: elapsed=  6.0s raw_samples= 300 fused_samples= 300
+[INFO] [1775634349.076317244] [imu_covariance_probe]: elapsed=  6.5s raw_samples= 325 fused_samples= 325
+[INFO] [1775634349.576243201] [imu_covariance_probe]: elapsed=  7.0s raw_samples= 350 fused_samples= 350
+[INFO] [1775634350.080439968] [imu_covariance_probe]: elapsed=  7.5s raw_samples= 374 fused_samples= 374
+[INFO] [1775634350.576395611] [imu_covariance_probe]: elapsed=  8.0s raw_samples= 400 fused_samples= 400
+[INFO] [1775634351.076390400] [imu_covariance_probe]: elapsed=  8.5s raw_samples= 425 fused_samples= 425
+[INFO] [1775634351.576323357] [imu_covariance_probe]: elapsed=  9.0s raw_samples= 450 fused_samples= 450
+[INFO] [1775634352.076234731] [imu_covariance_probe]: elapsed=  9.5s raw_samples= 475 fused_samples= 475
+[INFO] [1775634352.576357852] [imu_covariance_probe]: elapsed= 10.0s raw_samples= 500 fused_samples= 500
+[INFO] [1775634353.076317059] [imu_covariance_probe]: elapsed= 10.5s raw_samples= 525 fused_samples= 525
+[INFO] [1775634353.576913839] [imu_covariance_probe]: elapsed= 11.0s raw_samples= 550 fused_samples= 550
+[INFO] [1775634354.076301387] [imu_covariance_probe]: elapsed= 11.5s raw_samples= 575 fused_samples= 575
+[INFO] [1775634354.576314552] [imu_covariance_probe]: elapsed= 12.0s raw_samples= 600 fused_samples= 600
+[INFO] [1775634355.076368840] [imu_covariance_probe]: elapsed= 12.5s raw_samples= 625 fused_samples= 625
+[INFO] [1775634355.577347698] [imu_covariance_probe]: elapsed= 13.0s raw_samples= 650 fused_samples= 650
+[INFO] [1775634356.076298628] [imu_covariance_probe]: elapsed= 13.5s raw_samples= 675 fused_samples= 675
+[INFO] [1775634356.576244418] [imu_covariance_probe]: elapsed= 14.0s raw_samples= 700 fused_samples= 700
+[INFO] [1775634357.076318165] [imu_covariance_probe]: elapsed= 14.5s raw_samples= 725 fused_samples= 725
+[INFO] [1775634357.576957611] [imu_covariance_probe]: elapsed= 15.0s raw_samples= 750 fused_samples= 750
+[INFO] [1775634358.078049342] [imu_covariance_probe]: elapsed= 15.5s raw_samples= 775 fused_samples= 775
+[INFO] [1775634358.576366324] [imu_covariance_probe]: elapsed= 16.0s raw_samples= 800 fused_samples= 800
+[INFO] [1775634359.076286739] [imu_covariance_probe]: elapsed= 16.5s raw_samples= 825 fused_samples= 825
+[INFO] [1775634359.576389444] [imu_covariance_probe]: elapsed= 17.0s raw_samples= 850 fused_samples= 850
+[INFO] [1775634360.076767477] [imu_covariance_probe]: elapsed= 17.5s raw_samples= 875 fused_samples= 875
+[INFO] [1775634360.583539080] [imu_covariance_probe]: elapsed= 18.0s raw_samples= 900 fused_samples= 900
+[INFO] [1775634361.087600849] [imu_covariance_probe]: elapsed= 18.5s raw_samples= 925 fused_samples= 925
+[INFO] [1775634361.576243853] [imu_covariance_probe]: elapsed= 19.0s raw_samples= 950 fused_samples= 950
+[INFO] [1775634362.077532748] [imu_covariance_probe]: elapsed= 19.5s raw_samples= 975 fused_samples= 975
+[INFO] [1775634362.576315556] [imu_covariance_probe]: elapsed= 20.0s raw_samples=1000 fused_samples=1000
+[INFO] [1775634363.077195540] [imu_covariance_probe]: elapsed= 20.5s raw_samples=1025 fused_samples=1025
+[INFO] [1775634363.580609985] [imu_covariance_probe]: elapsed= 21.0s raw_samples=1050 fused_samples=1049
+[INFO] [1775634364.083253651] [imu_covariance_probe]: elapsed= 21.5s raw_samples=1075 fused_samples=1074
+[INFO] [1775634364.576419753] [imu_covariance_probe]: elapsed= 22.0s raw_samples=1100 fused_samples=1100
+[INFO] [1775634365.077358820] [imu_covariance_probe]: elapsed= 22.5s raw_samples=1125 fused_samples=1125
+[INFO] [1775634365.576893991] [imu_covariance_probe]: elapsed= 23.0s raw_samples=1150 fused_samples=1150
+[INFO] [1775634366.084092212] [imu_covariance_probe]: elapsed= 23.5s raw_samples=1174 fused_samples=1175
+[INFO] [1775634366.587619573] [imu_covariance_probe]: elapsed= 24.0s raw_samples=1199 fused_samples=1199
+[INFO] [1775634367.076320618] [imu_covariance_probe]: elapsed= 24.5s raw_samples=1225 fused_samples=1225
+[INFO] [1775634367.576933731] [imu_covariance_probe]: elapsed= 25.0s raw_samples=1250 fused_samples=1249
+[INFO] [1775634368.076371737] [imu_covariance_probe]: elapsed= 25.5s raw_samples=1275 fused_samples=1275
+[INFO] [1775634368.576378485] [imu_covariance_probe]: elapsed= 26.0s raw_samples=1300 fused_samples=1300
+[INFO] [1775634369.076353733] [imu_covariance_probe]: elapsed= 26.5s raw_samples=1325 fused_samples=1325
+[INFO] [1775634369.576303898] [imu_covariance_probe]: elapsed= 27.0s raw_samples=1350 fused_samples=1350
+[INFO] [1775634370.076335145] [imu_covariance_probe]: elapsed= 27.5s raw_samples=1375 fused_samples=1375
+[INFO] [1775634370.577030799] [imu_covariance_probe]: elapsed= 28.0s raw_samples=1400 fused_samples=1400
+[INFO] [1775634371.083268785] [imu_covariance_probe]: elapsed= 28.5s raw_samples=1425 fused_samples=1425
+[INFO] [1775634371.576200098] [imu_covariance_probe]: elapsed= 29.0s raw_samples=1450 fused_samples=1450
+[INFO] [1775634372.085819158] [imu_covariance_probe]: elapsed= 29.5s raw_samples=1475 fused_samples=1474
+[INFO] [1775634372.576216510] [imu_covariance_probe]: elapsed= 30.0s raw_samples=1500 fused_samples=1500
+[INFO] [1775634373.081381804] [imu_covariance_probe]: elapsed= 30.5s raw_samples=1525 fused_samples=1524
+[INFO] [1775634373.576168381] [imu_covariance_probe]: elapsed= 31.0s raw_samples=1550 fused_samples=1550
+[INFO] [1775634374.076181545] [imu_covariance_probe]: elapsed= 31.5s raw_samples=1575 fused_samples=1575
+[INFO] [1775634374.576255667] [imu_covariance_probe]: elapsed= 32.0s raw_samples=1600 fused_samples=1600
+[INFO] [1775634375.076303830] [imu_covariance_probe]: elapsed= 32.5s raw_samples=1625 fused_samples=1625
+[INFO] [1775634375.576630531] [imu_covariance_probe]: elapsed= 33.0s raw_samples=1650 fused_samples=1650
+[INFO] [1775634376.076397032] [imu_covariance_probe]: elapsed= 33.5s raw_samples=1675 fused_samples=1675
+[INFO] [1775634376.583071720] [imu_covariance_probe]: elapsed= 34.0s raw_samples=1700 fused_samples=1700
+[INFO] [1775634377.076395028] [imu_covariance_probe]: elapsed= 34.5s raw_samples=1725 fused_samples=1725
+[INFO] [1775634377.576278986] [imu_covariance_probe]: elapsed= 35.0s raw_samples=1750 fused_samples=1750
+[INFO] [1775634378.076330357] [imu_covariance_probe]: elapsed= 35.5s raw_samples=1775 fused_samples=1775
+[INFO] [1775634378.577199258] [imu_covariance_probe]: elapsed= 36.0s raw_samples=1800 fused_samples=1799
+[INFO] [1775634379.076311728] [imu_covariance_probe]: elapsed= 36.5s raw_samples=1825 fused_samples=1825
+[INFO] [1775634379.576305642] [imu_covariance_probe]: elapsed= 37.0s raw_samples=1850 fused_samples=1850
+[INFO] [1775634380.076319682] [imu_covariance_probe]: elapsed= 37.5s raw_samples=1875 fused_samples=1875
+[INFO] [1775634380.576318346] [imu_covariance_probe]: elapsed= 38.0s raw_samples=1900 fused_samples=1900
+[INFO] [1775634381.080466322] [imu_covariance_probe]: elapsed= 38.5s raw_samples=1925 fused_samples=1925
+[INFO] [1775634381.576570212] [imu_covariance_probe]: elapsed= 39.0s raw_samples=1950 fused_samples=1950
+[INFO] [1775634382.076333714] [imu_covariance_probe]: elapsed= 39.5s raw_samples=1975 fused_samples=1975
+[INFO] [1775634382.576291254] [imu_covariance_probe]: elapsed= 40.0s raw_samples=2000 fused_samples=2000
+[INFO] [1775634383.076335625] [imu_covariance_probe]: elapsed= 40.5s raw_samples=2025 fused_samples=2025
+[INFO] [1775634383.576402455] [imu_covariance_probe]: elapsed= 41.0s raw_samples=2050 fused_samples=2050
+[INFO] [1775634384.080315185] [imu_covariance_probe]: elapsed= 41.5s raw_samples=2075 fused_samples=2074
+[INFO] [1775634384.576320035] [imu_covariance_probe]: elapsed= 42.0s raw_samples=2100 fused_samples=2100
+[INFO] [1775634385.076383074] [imu_covariance_probe]: elapsed= 42.5s raw_samples=2125 fused_samples=2125
+[INFO] [1775634385.577227767] [imu_covariance_probe]: elapsed= 43.0s raw_samples=2150 fused_samples=2150
+[INFO] [1775634386.076330653] [imu_covariance_probe]: elapsed= 43.5s raw_samples=2175 fused_samples=2175
+[INFO] [1775634386.576281693] [imu_covariance_probe]: elapsed= 44.0s raw_samples=2200 fused_samples=2200
+[INFO] [1775634387.076339482] [imu_covariance_probe]: elapsed= 44.5s raw_samples=2225 fused_samples=2225
+[INFO] [1775634387.576297772] [imu_covariance_probe]: elapsed= 45.0s raw_samples=2250 fused_samples=2250
+[INFO] [1775634388.076296353] [imu_covariance_probe]: elapsed= 45.5s raw_samples=2275 fused_samples=2275
+[INFO] [1775634388.576629470] [imu_covariance_probe]: elapsed= 46.0s raw_samples=2300 fused_samples=2300
+[INFO] [1775634389.078448607] [imu_covariance_probe]: elapsed= 46.5s raw_samples=2325 fused_samples=2325
+[INFO] [1775634389.576213597] [imu_covariance_probe]: elapsed= 47.0s raw_samples=2350 fused_samples=2350
+[INFO] [1775634390.076306676] [imu_covariance_probe]: elapsed= 47.5s raw_samples=2375 fused_samples=2375
+[INFO] [1775634390.576210384] [imu_covariance_probe]: elapsed= 48.0s raw_samples=2400 fused_samples=2400
+[INFO] [1775634391.076756123] [imu_covariance_probe]: elapsed= 48.5s raw_samples=2425 fused_samples=2425
+[INFO] [1775634391.576608915] [imu_covariance_probe]: elapsed= 49.0s raw_samples=2450 fused_samples=2450
+[INFO] [1775634392.076314083] [imu_covariance_probe]: elapsed= 49.5s raw_samples=2475 fused_samples=2475
+[INFO] [1775634392.576234207] [imu_covariance_probe]: elapsed= 50.0s raw_samples=2500 fused_samples=2500
+[INFO] [1775634393.076806780] [imu_covariance_probe]: elapsed= 50.5s raw_samples=2525 fused_samples=2525
+[INFO] [1775634393.583302136] [imu_covariance_probe]: elapsed= 51.0s raw_samples=2550 fused_samples=2550
+[INFO] [1775634394.076285658] [imu_covariance_probe]: elapsed= 51.5s raw_samples=2575 fused_samples=2575
+[INFO] [1775634394.580218762] [imu_covariance_probe]: elapsed= 52.0s raw_samples=2600 fused_samples=2600
+[INFO] [1775634395.076336777] [imu_covariance_probe]: elapsed= 52.5s raw_samples=2625 fused_samples=2625
+[INFO] [1775634395.583728996] [imu_covariance_probe]: elapsed= 53.0s raw_samples=2650 fused_samples=2650
+[INFO] [1775634396.076213483] [imu_covariance_probe]: elapsed= 53.5s raw_samples=2675 fused_samples=2675
+[INFO] [1775634396.576175023] [imu_covariance_probe]: elapsed= 54.0s raw_samples=2700 fused_samples=2700
+[INFO] [1775634397.076391184] [imu_covariance_probe]: elapsed= 54.5s raw_samples=2725 fused_samples=2725
+[INFO] [1775634397.576311891] [imu_covariance_probe]: elapsed= 55.0s raw_samples=2750 fused_samples=2750
+[INFO] [1775634398.076330597] [imu_covariance_probe]: elapsed= 55.5s raw_samples=2775 fused_samples=2775
+[INFO] [1775634398.576313720] [imu_covariance_probe]: elapsed= 56.0s raw_samples=2800 fused_samples=2800
+[INFO] [1775634399.076684170] [imu_covariance_probe]: elapsed= 56.5s raw_samples=2825 fused_samples=2825
+[INFO] [1775634399.576177675] [imu_covariance_probe]: elapsed= 57.0s raw_samples=2850 fused_samples=2850
+[INFO] [1775634400.076838038] [imu_covariance_probe]: elapsed= 57.5s raw_samples=2875 fused_samples=2875
+[INFO] [1775634400.576628039] [imu_covariance_probe]: elapsed= 58.0s raw_samples=2900 fused_samples=2900
+[INFO] [1775634401.076305791] [imu_covariance_probe]: elapsed= 58.5s raw_samples=2925 fused_samples=2925
+[INFO] [1775634401.576296497] [imu_covariance_probe]: elapsed= 59.0s raw_samples=2950 fused_samples=2950
+[INFO] [1775634402.076367411] [imu_covariance_probe]: elapsed= 59.5s raw_samples=2975 fused_samples=2975
+[INFO] [1775634402.576307076] [imu_covariance_probe]: elapsed= 60.0s raw_samples=3000 fused_samples=3000
+
+=== IMU covariance probe ===
+raw samples              : 3000
+fused samples            : 3000
+
+linear_acceleration_covariance (measured)
+[8.035649116e-05, 8.647812938e-06, -1.498759153e-05]
+[8.647812938e-06, 3.892947416e-05, -4.019406802e-06]
+[-1.498759153e-05, -4.019406802e-06, 5.867961220e-05]
+
+angular_velocity_covariance (measured)
+[4.677706041e-07, 1.396205556e-07, -2.917814219e-09]
+[1.396205556e-07, 6.536513067e-07, -7.956774529e-09]
+[-2.917814219e-09, -7.956774529e-09, 2.731644396e-07]
+
+Paste into sensor_msgs/Imu for /imu/data_raw
+linear_acceleration_covariance = [8.035649116e-05, 8.647812938e-06, -1.498759153e-05, 8.647812938e-06, 3.892947416e-05, -4.019406802e-06, -1.498759153e-05, -4.019406802e-06, 5.867961220e-05]
+angular_velocity_covariance    = [4.677706041e-07, 1.396205556e-07, -2.917814219e-09, 1.396205556e-07, 6.536513067e-07, -7.956774529e-09, -2.917814219e-09, -7.956774529e-09, 2.731644396e-07]
+orientation_covariance         = [-1.000000000e+00, 0, 0, 0, 0, 0, 0, 0, 0]
+
+orientation_covariance (measured roll/pitch/yaw)
+[6.114126870e-09, 1.568921214e-09, -1.097730311e-09]
+[1.568921214e-09, 7.536341977e-09, 2.293698131e-10]
+[-1.097730311e-09, 2.293698131e-10, 3.296071327e-09]
+
+orientation_covariance (EKF seed, conservative yaw floor 5.0 deg)
+[6.114126870e-09, 1.568921214e-09, -1.097730311e-09]
+[1.568921214e-09, 7.536341977e-09, 2.293698131e-10]
+[-1.097730311e-09, 2.293698131e-10, 7.615435495e-03]
+
+Paste into fused /imu/data publisher if you set covariance there
+orientation_covariance_measured = [6.114126870e-09, 1.568921214e-09, -1.097730311e-09, 1.568921214e-09, 7.536341977e-09, 2.293698131e-10, -1.097730311e-09, 2.293698131e-10, 3.296071327e-09]
+orientation_covariance_seed     = [6.114126870e-09, 1.568921214e-09, -1.097730311e-09, 1.568921214e-09, 7.536341977e-09, 2.293698131e-10, -1.097730311e-09, 2.293698131e-10, 7.615435495e-03]
+
+
+orangepi@orangepi5pro:~/dev_ws$ ros2 topic echo /imu/data_raw --once
+header:
+  stamp:
+    sec: 1775634428
+    nanosec: 849073766
+  frame_id: imu_link
+orientation:
+  x: 0.0
+  y: 0.0
+  z: 0.0
+  w: 1.0
+orientation_covariance:
+- -1.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+angular_velocity:
+  x: 0.00041799999999999997
+  y: 0.000327
+  z: 0.000873
+angular_velocity_covariance:
+- 4.910438514e-07
+- 1.802846229e-07
+- -4.252982458e-09
+- 1.802846229e-07
+- 8.486915009e-07
+- -2.845166744e-08
+- -4.252982458e-09
+- -2.845166744e-08
+- 2.070375365e-07
+linear_acceleration:
+  x: 0.392
+  y: 0.091
+  z: 9.819
+linear_acceleration_covariance:
+- 8.121470482e-05
+- 9.929325329e-06
+- -1.754624293e-05
+- 9.929325329e-06
+- 4.137433079e-05
+- -4.947191142e-06
+- -1.754624293e-05
+- -4.947191142e-06
+- 6.550673622e-05
+---
+orangepi@orangepi5pro:~/dev_ws$ 

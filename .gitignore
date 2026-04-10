@@ -4,4 +4,20 @@ log/
 docs/
 # src/gz_ros2_control/
 src/articubot_one/
-src/articubot_one/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Tooling (optional)
+.codex
+.claude/
+
+# Editor (optional)
+.vscode/
+
+# stm32层
+firmware/
+
+# 硬件雷达驱动包
+src/sllidar_ros2

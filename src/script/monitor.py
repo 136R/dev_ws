@@ -12,7 +12,7 @@ class DataMonitor(Node):
         
         # 订阅核心话题
         self.odom_sub = self.create_subscription(Odometry, '/odom', self.odom_cb, 10)
-        self.imu_sub = self.create_subscription(Imu, '/imu', self.imu_cb, 10)
+        self.imu_sub = self.create_subscription(Imu, '/imu/data', self.imu_cb, 10)
         self.ekf_sub = self.create_subscription(Odometry, '/odometry/filtered', self.ekf_cb, 10)
 
         # 原始 Odom 数据

@@ -1,8 +1,8 @@
 ekf_filter_node:
   ros__parameters:
-    frequency: 50.0
+    frequency: 100.0
     transform_time_offset: 0.03 # TF发布允许延迟
-    sensor_timeout: 0.08   # = 2 × IMU周期(40ms)；允许1个包缺失不误报
+    sensor_timeout: 0.08   # 50 Hz IMU fusion output; allows one dropped sample
     two_d_mode: true
 
     odom_frame: odom
@@ -21,18 +21,40 @@ ekf_filter_node:
                    false, false, false]  # acceleration
     odom0_differential: false
     odom0_relative: false
-    odom0_queue_size: 5
+    odom0_queue_size: 10
 
-    # Source 2: STM32 INS heading (published via /imu)
-    # angular_velocity.z comes from encoder kinematics (same source as odom0) — NOT used
-    # orientation.yaw comes from STM32 internal INS (QMB658C fused) — independent, IS used
-    imu0: /imu
+    # Source 2: Host-fused IMU orientation from imu_complementary_filter
+    imu0: /imu/data
     imu0_config: [false, false, false,  # x y z
-                  false, false, true,   # roll pitch yaw ← INS absolute heading (independent)
+                  false, false, false,   # roll pitch yaw
                   false, false, false,  # linear velocity
-                  false, false, false,  # angular velocity z ← encoder-derived, redundant with odom0
+                  false, false, true,   # angular velocity z
                   false, false, false]  # acceleration
-    imu0_differential: true
+    imu0_differential: false
     imu0_relative: false
-    imu0_queue_size: 5
-    imu0_remove_gravitational_acceleration: true
+    imu0_queue_size: 10
+    imu0_remove_gravitational_acceleration: false
+
+# [ADVANCED] The process noise covariance matrix can be difficult to tune, and can vary for each application, so it is
+# exposed as a configuration parameter. This matrix represents the noise we add to the total error after each
+# prediction step. The better the omnidirectional motion model matches your system, the smaller these values can be.
+# However, if users find that a given variable is slow to converge, one approach is to increase the
+# process_noise_covariance diagonal value for the variable in question, which will cause the filter's predicted error
+# to be larger, which will cause the filter to trust the incoming measurement more during correction. The values are
+# ordered as x, y, z, roll, pitch, yaw, vx, vy, vz, vroll, vpitch, vyaw, ax, ay, az. Defaults to the matrix below if
+# unspecified.
+    process_noise_covariance: [0.05, 0.0,    0.0,    0.0,    0.0,    0.0,    0.0,     0.0,     0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,
+                                0.0,    0.05, 0.0,    0.0,    0.0,    0.0,    0.0,     0.0,     0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,
+                                0.0,    0.0,    0.06, 0.0,    0.0,    0.0,    0.0,     0.0,     0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,
+                                0.0,    0.0,    0.0,    0.03, 0.0,    0.0,    0.0,     0.0,     0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,
+                                0.0,    0.0,    0.0,    0.0,    0.03, 0.0,    0.0,     0.0,     0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,
+                                0.0,    0.0,    0.0,    0.0,    0.0,    0.06, 0.0,     0.0,     0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,
+                                0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.025, 0.0,     0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,
+                                0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,     0.025, 0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,
+                                0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,     0.0,     0.04, 0.0,    0.0,    0.0,    0.0,    0.0,    0.0,
+                                0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,     0.0,     0.0,    0.01, 0.0,    0.0,    0.0,    0.0,    0.0,
+                                0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,     0.0,     0.0,    0.0,    0.01, 0.0,    0.0,    0.0,    0.0,
+                                0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,     0.0,     0.0,    0.0,    0.0,    0.02, 0.0,    0.0,    0.0,
+                                0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,     0.0,     0.0,    0.0,    0.0,    0.0,    0.01, 0.0,    0.0,
+                                0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,     0.0,     0.0,    0.0,    0.0,    0.0,    0.0,    0.01, 0.0,
+                                0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,     0.0,     0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.015]

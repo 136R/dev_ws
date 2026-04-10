@@ -4,7 +4,12 @@
 #pragma once
 
 #include <array>
+#include <atomic>
+#include <chrono>
+#include <limits>
+#include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "hardware_interface/system_interface.hpp"
@@ -13,7 +18,6 @@
 #include "hardware_interface/types/hardware_interface_return_values.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_lifecycle/state.hpp"
-#include "sensor_msgs/msg/imu.hpp"
 
 namespace my_bot_hw
 {
@@ -55,26 +59,54 @@ private:
   // ── Serial helpers ─────────────────────────────────────────────────
   bool open_serial(const std::string & port);
   void close_serial();
-  bool serial_write(const std::vector<uint8_t> & data);
-  std::vector<uint8_t> serial_read_timeout(size_t expected_len, int timeout_ms);
-  std::vector<uint8_t> read_odom_frame(int timeout_ms);
+  bool serial_write(const uint8_t * data, size_t len);
+  double * get_imu_state_ptr(const std::string & interface_name);
+
+  // ── Background RX thread ───────────────────────────────────────────
+  void rx_thread_fn();
+  void stop_rx_thread();
 
   // ── Parameters (from URDF <param>) ────────────────────────────────
   std::string serial_port_{"/dev/ttyS7"};
-  double wheel_separation_{0.171};
-  double wheel_radius_{0.0325};
+  double feedback_timeout_sec_{0.5};
 
   // ── Hardware state ─────────────────────────────────────────────────
   int serial_fd_{-1};
   size_t left_idx_{0};
   size_t right_idx_{1};
+  size_t imu_sensor_idx_{0};
   std::array<double, 4> hw_states_{};   // [0]=left_pos [1]=right_pos [2]=left_vel [3]=right_vel
-  std::array<double, 2> hw_commands_{}; // [0]=left_vel_cmd [1]=right_vel_cmd
+  std::array<double, 2> hw_commands_{}; // [0]=left_vel_cmd [1]=right_vel_cmd [rad/s]
+  std::array<double, 10> imu_states_{
+    0.0,
+    0.0,
+    0.0,
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0};
+  size_t missed_feedback_cycles_{0};
 
-  // ── IMU publisher (standalone node, derives data from 0x0A frame) ─
-  std::shared_ptr<rclcpp::Node> imu_node_;
-  rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr imu_pub_;
+  // ── Shared state between RX thread and read() ─────────────────────
+  // Protected by state_mutex_
+  struct SharedState {
+    int32_t left_delta_acc{0};   // accumulated encoder counts since last read()
+    int32_t right_delta_acc{0};
+    int32_t accel_mms2[3]{0, 0, 0};
+    int32_t gyro_urad_s[3]{0, 0, 0};
+    bool    has_fresh_feedback{false};
+    bool    has_feedback_ever{false};
+    std::chrono::steady_clock::time_point last_feedback_time{};
+  };
+  std::mutex   state_mutex_;
+  SharedState  shared_state_{};
 
+  // ── RX thread lifecycle ────────────────────────────────────────────
+  std::thread           rx_thread_;
+  std::atomic<bool>     rx_running_{false};
   // ── Logger ────────────────────────────────────────────────────────
   rclcpp::Logger logger_{rclcpp::get_logger("Stm32SerialHardware")};
 };

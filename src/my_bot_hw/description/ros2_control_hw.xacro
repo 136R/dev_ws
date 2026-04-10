@@ -2,13 +2,13 @@
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
   <xacro:arg name="serial_port" default="/dev/ttyS7"/>
+  <xacro:arg name="feedback_timeout_sec" default="0.5"/>
 
   <ros2_control name="Stm32SerialSystem" type="system">
     <hardware>
       <plugin>my_bot_hw/Stm32SerialHardware</plugin>
       <param name="serial_port">$(arg serial_port)</param>
-      <param name="wheel_separation">0.171</param>
-      <param name="wheel_radius">0.0325</param>
+      <param name="feedback_timeout_sec">$(arg feedback_timeout_sec)</param>
     </hardware>
 
     <joint name="left_wheel_joint">
@@ -28,6 +28,19 @@
       <state_interface name="position"/>
       <state_interface name="velocity"/>
     </joint>
+
+    <sensor name="imu_sensor">
+      <state_interface name="orientation.x"/>
+      <state_interface name="orientation.y"/>
+      <state_interface name="orientation.z"/>
+      <state_interface name="orientation.w"/>
+      <state_interface name="angular_velocity.x"/>
+      <state_interface name="angular_velocity.y"/>
+      <state_interface name="angular_velocity.z"/>
+      <state_interface name="linear_acceleration.x"/>
+      <state_interface name="linear_acceleration.y"/>
+      <state_interface name="linear_acceleration.z"/>
+    </sensor>
   </ros2_control>
 
   <!-- imu_link: fixed to base_link at robot center (no offset for ground robot) -->

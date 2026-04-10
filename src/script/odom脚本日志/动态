@@ -1,0 +1,74 @@
+第一次：
+=== Odom vx covariance probe ===
+mode                     : dynamic
+topic                    : /odom
+capture duration         : 60.0 s
+warmup discarded         : 5.0 s
+kept samples             : 2750
+
+vx mean                  : 4.231584461e-04 m/s
+vx stddev                : 9.854042485e-02 m/s
+vx variance              : 9.710215330e-03 (m/s)^2
+
+reference speed          : 2.000000000e-01 m/s
+vx error mean            : -1.995768416e-01 m/s
+vx error stddev          : 9.854042485e-02 m/s
+vx error variance        : 9.710215330e-03 (m/s)^2
+
+Suggested use
+- Candidate /odom vx covariance: 9.710215330e-03
+- Run this multiple times on your normal floor and use the larger stable result.
+- If starts/stops contaminate the result, increase --warmup and keep speed constant.
+
+Example
+twist_covariance_diagonal: [9.710215330e-03, 1e6, 1e6, 1e6, 1e6, 1e6]
+
+第二次：
+=== Odom vx covariance probe ===
+mode                     : dynamic
+topic                    : /odom
+capture duration         : 60.0 s
+warmup discarded         : 5.0 s
+kept samples             : 2750
+
+vx mean                  : 3.050990615e-03 m/s
+vx stddev                : 9.688376123e-02 m/s
+vx variance              : 9.386463190e-03 (m/s)^2
+
+reference speed          : 2.000000000e-01 m/s
+vx error mean            : -1.969490094e-01 m/s
+vx error stddev          : 9.688376123e-02 m/s
+vx error variance        : 9.386463190e-03 (m/s)^2
+
+Suggested use
+- Candidate /odom vx covariance: 9.386463190e-03
+- Run this multiple times on your normal floor and use the larger stable result.
+- If starts/stops contaminate the result, increase --warmup and keep speed constant.
+
+Example
+twist_covariance_diagonal: [9.386463190e-03, 1e6, 1e6, 1e6, 1e6, 1e6]
+
+第三次：
+=== Odom vx covariance probe ===
+mode                     : dynamic
+topic                    : /odom
+capture duration         : 60.0 s
+warmup discarded         : 5.0 s
+kept samples             : 2751
+
+vx mean                  : 1.942050560e-03 m/s
+vx stddev                : 9.508761847e-02 m/s
+vx variance              : 9.041655187e-03 (m/s)^2
+
+reference speed          : 2.000000000e-01 m/s
+vx error mean            : -1.980579494e-01 m/s
+vx error stddev          : 9.508761847e-02 m/s
+vx error variance        : 9.041655187e-03 (m/s)^2
+
+Suggested use
+- Candidate /odom vx covariance: 9.041655187e-03
+- Run this multiple times on your normal floor and use the larger stable result.
+- If starts/stops contaminate the result, increase --warmup and keep speed constant.
+
+Example
+twist_covariance_diagonal: [9.041655187e-03, 1e6, 1e6, 1e6, 1e6, 1e6]

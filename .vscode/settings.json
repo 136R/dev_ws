@@ -8,6 +8,6 @@
         "/opt/ros/humble/lib/python3.10/site-packages",
         "/opt/ros/humble/local/lib/python3.10/dist-packages"
     ],
-    "cmake.sourceDirectory": "/home/bingda/dev_ws/src/articubot_one",
+    "cmake.sourceDirectory": "/home/orangepi/dev_ws/src/my_bot",
     "commentTranslate.source": "Google"
 }

@@ -78,9 +78,20 @@ def generate_launch_description():
         )]
     )
 
-    # 4. Differential Drive Controller (wait 2.5s)
+    # 4. IMU broadcaster (wait 2.3s)
+    imu_broad_spawner = TimerAction(
+        period=2.3,
+        actions=[Node(
+            package='controller_manager',
+            executable='spawner',
+            arguments=['imu_broad', '--controller-manager', '/controller_manager'],
+            output='screen',
+        )]
+    )
+
+    # 5. Differential Drive Controller (wait 2.6s)
     diff_cont_spawner = TimerAction(
-        period=2.5,
+        period=2.6,
         actions=[Node(
             package='controller_manager',
             executable='spawner',
@@ -89,7 +100,7 @@ def generate_launch_description():
         )]
     )
 
-    # 5. SLAMTEC C1 LiDAR
+    # 6. SLAMTEC C1 LiDAR
     # sllidar_ros2 must be built and sourced in this workspace
     lidar_node = Node(
         package='sllidar_ros2',
@@ -106,7 +117,7 @@ def generate_launch_description():
         }]
     )
 
-    # 6. Laser filter: /scan (raw) → /scan_filtered (clean)
+    # 7. Laser filter: /scan (raw) → /scan_filtered (clean)
     # Applies range / speckle / angular-bounds filters before SLAM and Nav2
     laser_filter_node = Node(
         package='laser_filters',
@@ -120,8 +131,8 @@ def generate_launch_description():
         ]
     )
 
-    # 7. Twist Mux (velocity arbitration: keyboard priority 90 > nav2 priority 70)
-    # Output → /diff_cont/cmd_vel_unstamped (diff_drive_controller input)
+    # 8. Twist Mux (velocity arbitration: keyboard priority 90 > nav2 priority 70)
+    # Output goes directly to diff_drive_controller.
     twist_mux_node = Node(
         package='twist_mux',
         executable='twist_mux',
@@ -133,7 +144,43 @@ def generate_launch_description():
         ]
     )
 
-    # 8. Topic relay: /diff_cont/odom → /odom
+    # 8b. Straight-drive corrector: gyro-based yaw correction during straight-line motion.
+    # Sits between twist_mux and diff_cont; uses imu_broad/imu gyro.z.
+    # Tune kp and straight_threshold if robot over- or under-corrects.
+    # straight_drive_corrector_node = Node(
+    #     package='my_bot_hw',
+    #     executable='straight_drive_corrector.py',
+    #     name='straight_drive_corrector',
+    #     output='screen',
+    #     parameters=[{
+    #         'straight_threshold': 0.05,   # rad/s: below = straight intent
+    #         'kp': 0.5,                    # proportional gain; increase if under-corrects
+    #         'max_correction': 0.5,        # rad/s: clamp to prevent over-steer
+    #         'min_linear': 0.05,           # m/s: don't correct when stopped
+    #         'imu_topic': '/imu_broad/imu',
+    #     }],
+    #     remappings=[
+    #         ('cmd_vel_in',  '/cmd_vel_mux_out'),
+    #         ('cmd_vel_out', '/diff_cont/cmd_vel_unstamped'),
+    #     ]
+    # )
+
+    # 9. Host-side IMU fusion: imu_broad/imu -> /imu/data
+    imu_filter_node = Node(
+        package='imu_complementary_filter',
+        executable='complementary_filter_node',
+        name='imu_complementary_filter',
+        output='screen',
+        parameters=[
+            os.path.join(pkg_hw, 'config', 'imu_complementary_filter.yaml'),
+            {'use_sim_time': use_sim_time},
+        ],
+        remappings=[
+            ('/imu/data_raw', '/imu_broad/imu'),
+        ],
+    )
+
+    # 10. Topic relay: /diff_cont/odom → /odom
     # diff_drive_controller publishes /diff_cont/odom; EKF subscribes to /odom
     odom_relay_node = Node(
         package='topic_tools',
@@ -143,7 +190,7 @@ def generate_launch_description():
         output='screen',
     )
 
-    # 9. EKF node: fuses /odom (encoder vx) + /imu (IMU vyaw) → /odometry/filtered
+    # 11. EKF node: fuses /odom + /imu/data -> /odometry/filtered
     # Also publishes the odom→base_footprint TF (diff_cont has enable_odom_tf: false)
     ekf_node = Node(
         package='robot_localization',
@@ -163,10 +210,12 @@ def generate_launch_description():
         rsp_node,
         ros2_control_node,
         joint_broad_spawner,
+        imu_broad_spawner,
         diff_cont_spawner,
         lidar_node,
         laser_filter_node,
         twist_mux_node,
+        imu_filter_node,
         odom_relay_node,
         ekf_node,
     ])

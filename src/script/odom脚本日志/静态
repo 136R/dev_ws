@@ -1,0 +1,145 @@
+orangepi@orangepi5pro:~/dev_ws$ python3 /home/orangepi/dev_ws/src/script/odom_vx_covariance_probe.py \
+  --mode stationary \
+  --topic /odom \
+  --duration 60 \
+  --warmup 3
+[INFO] [1775647840.846955036] [odom_vx_covariance_probe]: Listening live on /odom for 60.0s, warmup=3.0s, mode=stationary. robot must stay still.
+[INFO] [1775647841.327798139] [odom_vx_covariance_probe]: elapsed=  0.5s kept=   0 warmup_dropped=  25
+[INFO] [1775647841.828005002] [odom_vx_covariance_probe]: elapsed=  1.0s kept=   0 warmup_dropped=  50
+[INFO] [1775647842.329714050] [odom_vx_covariance_probe]: elapsed=  1.5s kept=   0 warmup_dropped=  75
+[INFO] [1775647842.827483157] [odom_vx_covariance_probe]: elapsed=  2.0s kept=   0 warmup_dropped= 100
+[INFO] [1775647843.327692644] [odom_vx_covariance_probe]: elapsed=  2.5s kept=   0 warmup_dropped= 125
+[INFO] [1775647843.827741425] [odom_vx_covariance_probe]: elapsed=  3.0s kept=   0 warmup_dropped= 150
+[INFO] [1775647844.327680458] [odom_vx_covariance_probe]: elapsed=  3.5s kept=  25 warmup_dropped= 150
+[INFO] [1775647844.827821405] [odom_vx_covariance_probe]: elapsed=  4.0s kept=  50 warmup_dropped= 150
+[INFO] [1775647845.327736021] [odom_vx_covariance_probe]: elapsed=  4.5s kept=  75 warmup_dropped= 150
+[INFO] [1775647845.827797636] [odom_vx_covariance_probe]: elapsed=  5.0s kept= 100 warmup_dropped= 150
+[INFO] [1775647846.338988171] [odom_vx_covariance_probe]: elapsed=  5.5s kept= 125 warmup_dropped= 150
+[INFO] [1775647846.827490037] [odom_vx_covariance_probe]: elapsed=  6.0s kept= 150 warmup_dropped= 150
+[INFO] [1775647847.327428279] [odom_vx_covariance_probe]: elapsed=  6.5s kept= 175 warmup_dropped= 150
+[INFO] [1775647847.827495726] [odom_vx_covariance_probe]: elapsed=  7.0s kept= 200 warmup_dropped= 150
+[INFO] [1775647848.327704047] [odom_vx_covariance_probe]: elapsed=  7.5s kept= 225 warmup_dropped= 150
+[INFO] [1775647848.827712370] [odom_vx_covariance_probe]: elapsed=  8.0s kept= 250 warmup_dropped= 150
+[INFO] [1775647849.327439031] [odom_vx_covariance_probe]: elapsed=  8.5s kept= 275 warmup_dropped= 150
+[INFO] [1775647849.827436772] [odom_vx_covariance_probe]: elapsed=  9.0s kept= 300 warmup_dropped= 150
+[INFO] [1775647850.327551760] [odom_vx_covariance_probe]: elapsed=  9.5s kept= 325 warmup_dropped= 150
+[INFO] [1775647850.827488543] [odom_vx_covariance_probe]: elapsed= 10.0s kept= 350 warmup_dropped= 150
+[INFO] [1775647851.327862820] [odom_vx_covariance_probe]: elapsed= 10.5s kept= 375 warmup_dropped= 150
+[INFO] [1775647851.827448941] [odom_vx_covariance_probe]: elapsed= 11.0s kept= 400 warmup_dropped= 150
+[INFO] [1775647852.327708594] [odom_vx_covariance_probe]: elapsed= 11.5s kept= 425 warmup_dropped= 150
+[INFO] [1775647852.827464838] [odom_vx_covariance_probe]: elapsed= 12.0s kept= 450 warmup_dropped= 150
+[INFO] [1775647853.327487078] [odom_vx_covariance_probe]: elapsed= 12.5s kept= 475 warmup_dropped= 150
+[INFO] [1775647853.830433109] [odom_vx_covariance_probe]: elapsed= 13.0s kept= 500 warmup_dropped= 150
+[INFO] [1775647854.327733139] [odom_vx_covariance_probe]: elapsed= 13.5s kept= 525 warmup_dropped= 150
+[INFO] [1775647854.827739045] [odom_vx_covariance_probe]: elapsed= 14.0s kept= 550 warmup_dropped= 150
+[INFO] [1775647855.327688078] [odom_vx_covariance_probe]: elapsed= 14.5s kept= 575 warmup_dropped= 150
+[INFO] [1775647855.827726943] [odom_vx_covariance_probe]: elapsed= 15.0s kept= 600 warmup_dropped= 150
+[INFO] [1775647856.327999096] [odom_vx_covariance_probe]: elapsed= 15.5s kept= 625 warmup_dropped= 150
+[INFO] [1775647856.827820089] [odom_vx_covariance_probe]: elapsed= 16.0s kept= 650 warmup_dropped= 150
+[INFO] [1775647857.327969202] [odom_vx_covariance_probe]: elapsed= 16.5s kept= 675 warmup_dropped= 150
+[INFO] [1775647857.832258171] [odom_vx_covariance_probe]: elapsed= 17.0s kept= 700 warmup_dropped= 150
+[INFO] [1775647858.327573855] [odom_vx_covariance_probe]: elapsed= 17.5s kept= 725 warmup_dropped= 150
+[INFO] [1775647858.825896578] [odom_vx_covariance_probe]: elapsed= 18.0s kept= 750 warmup_dropped= 150
+[INFO] [1775647859.327466879] [odom_vx_covariance_probe]: elapsed= 18.5s kept= 775 warmup_dropped= 150
+[INFO] [1775647859.827865947] [odom_vx_covariance_probe]: elapsed= 19.0s kept= 800 warmup_dropped= 150
+[INFO] [1775647860.327758105] [odom_vx_covariance_probe]: elapsed= 19.5s kept= 825 warmup_dropped= 150
+[INFO] [1775647860.827631348] [odom_vx_covariance_probe]: elapsed= 20.0s kept= 850 warmup_dropped= 150
+[INFO] [1775647861.334138201] [odom_vx_covariance_probe]: elapsed= 20.5s kept= 875 warmup_dropped= 150
+[INFO] [1775647861.827630953] [odom_vx_covariance_probe]: elapsed= 21.0s kept= 900 warmup_dropped= 150
+[INFO] [1775647862.327470071] [odom_vx_covariance_probe]: elapsed= 21.5s kept= 925 warmup_dropped= 150
+[INFO] [1775647862.827466061] [odom_vx_covariance_probe]: elapsed= 22.0s kept= 950 warmup_dropped= 150
+[INFO] [1775647863.327463177] [odom_vx_covariance_probe]: elapsed= 22.5s kept= 975 warmup_dropped= 150
+[INFO] [1775647863.838625629] [odom_vx_covariance_probe]: elapsed= 23.0s kept=1000 warmup_dropped= 150
+[INFO] [1775647864.327735403] [odom_vx_covariance_probe]: elapsed= 23.5s kept=1025 warmup_dropped= 150
+[INFO] [1775647864.830511145] [odom_vx_covariance_probe]: elapsed= 24.0s kept=1050 warmup_dropped= 150
+[INFO] [1775647865.328320584] [odom_vx_covariance_probe]: elapsed= 24.5s kept=1075 warmup_dropped= 150
+[INFO] [1775647865.827775832] [odom_vx_covariance_probe]: elapsed= 25.0s kept=1100 warmup_dropped= 150
+[INFO] [1775647866.327984153] [odom_vx_covariance_probe]: elapsed= 25.5s kept=1125 warmup_dropped= 150
+[INFO] [1775647866.830225277] [odom_vx_covariance_probe]: elapsed= 26.0s kept=1150 warmup_dropped= 150
+[INFO] [1775647867.327762678] [odom_vx_covariance_probe]: elapsed= 26.5s kept=1175 warmup_dropped= 150
+[INFO] [1775647867.827714336] [odom_vx_covariance_probe]: elapsed= 27.0s kept=1200 warmup_dropped= 150
+[INFO] [1775647868.328012197] [odom_vx_covariance_probe]: elapsed= 27.5s kept=1225 warmup_dropped= 150
+[INFO] [1775647868.827564860] [odom_vx_covariance_probe]: elapsed= 28.0s kept=1250 warmup_dropped= 150
+[INFO] [1775647869.327447686] [odom_vx_covariance_probe]: elapsed= 28.5s kept=1275 warmup_dropped= 150
+[INFO] [1775647869.827529425] [odom_vx_covariance_probe]: elapsed= 29.0s kept=1300 warmup_dropped= 150
+[INFO] [1775647870.327437583] [odom_vx_covariance_probe]: elapsed= 29.5s kept=1325 warmup_dropped= 150
+[INFO] [1775647870.827517281] [odom_vx_covariance_probe]: elapsed= 30.0s kept=1350 warmup_dropped= 150
+[INFO] [1775647871.327597520] [odom_vx_covariance_probe]: elapsed= 30.5s kept=1375 warmup_dropped= 150
+[INFO] [1775647871.832108361] [odom_vx_covariance_probe]: elapsed= 31.0s kept=1400 warmup_dropped= 150
+[INFO] [1775647872.327680999] [odom_vx_covariance_probe]: elapsed= 31.5s kept=1425 warmup_dropped= 150
+[INFO] [1775647872.827720489] [odom_vx_covariance_probe]: elapsed= 32.0s kept=1450 warmup_dropped= 150
+[INFO] [1775647873.327513149] [odom_vx_covariance_probe]: elapsed= 32.5s kept=1475 warmup_dropped= 150
+[INFO] [1775647873.832372735] [odom_vx_covariance_probe]: elapsed= 33.0s kept=1500 warmup_dropped= 150
+[INFO] [1775647874.333101256] [odom_vx_covariance_probe]: elapsed= 33.5s kept=1525 warmup_dropped= 150
+[INFO] [1775647874.827467662] [odom_vx_covariance_probe]: elapsed= 34.0s kept=1550 warmup_dropped= 150
+[INFO] [1775647875.327643692] [odom_vx_covariance_probe]: elapsed= 34.5s kept=1575 warmup_dropped= 150
+[INFO] [1775647875.827824388] [odom_vx_covariance_probe]: elapsed= 35.0s kept=1600 warmup_dropped= 150
+[INFO] [1775647876.327557215] [odom_vx_covariance_probe]: elapsed= 35.5s kept=1625 warmup_dropped= 150
+[INFO] [1775647876.827446915] [odom_vx_covariance_probe]: elapsed= 36.0s kept=1650 warmup_dropped= 150
+[INFO] [1775647877.332711162] [odom_vx_covariance_probe]: elapsed= 36.5s kept=1675 warmup_dropped= 150
+[INFO] [1775647877.827444813] [odom_vx_covariance_probe]: elapsed= 37.0s kept=1700 warmup_dropped= 150
+[INFO] [1775647878.332420439] [odom_vx_covariance_probe]: elapsed= 37.5s kept=1725 warmup_dropped= 150
+[INFO] [1775647878.827696456] [odom_vx_covariance_probe]: elapsed= 38.0s kept=1750 warmup_dropped= 150
+[INFO] [1775647879.327612240] [odom_vx_covariance_probe]: elapsed= 38.5s kept=1775 warmup_dropped= 150
+[INFO] [1775647879.827425899] [odom_vx_covariance_probe]: elapsed= 39.0s kept=1800 warmup_dropped= 150
+[INFO] [1775647880.328024173] [odom_vx_covariance_probe]: elapsed= 39.5s kept=1825 warmup_dropped= 150
+[INFO] [1775647880.827628169] [odom_vx_covariance_probe]: elapsed= 40.0s kept=1850 warmup_dropped= 150
+[INFO] [1775647881.331335855] [odom_vx_covariance_probe]: elapsed= 40.5s kept=1875 warmup_dropped= 150
+[INFO] [1775647881.827710856] [odom_vx_covariance_probe]: elapsed= 41.0s kept=1900 warmup_dropped= 150
+[INFO] [1775647882.327677681] [odom_vx_covariance_probe]: elapsed= 41.5s kept=1925 warmup_dropped= 150
+[INFO] [1775647882.827631922] [odom_vx_covariance_probe]: elapsed= 42.0s kept=1950 warmup_dropped= 150
+[INFO] [1775647883.327617412] [odom_vx_covariance_probe]: elapsed= 42.5s kept=1975 warmup_dropped= 150
+[INFO] [1775647883.827676693] [odom_vx_covariance_probe]: elapsed= 43.0s kept=2000 warmup_dropped= 150
+[INFO] [1775647884.327665392] [odom_vx_covariance_probe]: elapsed= 43.5s kept=2025 warmup_dropped= 150
+[INFO] [1775647884.827659049] [odom_vx_covariance_probe]: elapsed= 44.0s kept=2050 warmup_dropped= 150
+[INFO] [1775647885.331885103] [odom_vx_covariance_probe]: elapsed= 44.5s kept=2075 warmup_dropped= 150
+[INFO] [1775647885.827496324] [odom_vx_covariance_probe]: elapsed= 45.0s kept=2100 warmup_dropped= 150
+[INFO] [1775647886.328286053] [odom_vx_covariance_probe]: elapsed= 45.5s kept=2125 warmup_dropped= 150
+[INFO] [1775647886.828119837] [odom_vx_covariance_probe]: elapsed= 46.0s kept=2150 warmup_dropped= 150
+[INFO] [1775647887.330673957] [odom_vx_covariance_probe]: elapsed= 46.5s kept=2175 warmup_dropped= 150
+[INFO] [1775647887.828238733] [odom_vx_covariance_probe]: elapsed= 47.0s kept=2200 warmup_dropped= 150
+[INFO] [1775647888.328107392] [odom_vx_covariance_probe]: elapsed= 47.5s kept=2225 warmup_dropped= 150
+[INFO] [1775647888.827847011] [odom_vx_covariance_probe]: elapsed= 48.0s kept=2250 warmup_dropped= 150
+[INFO] [1775647889.327782210] [odom_vx_covariance_probe]: elapsed= 48.5s kept=2275 warmup_dropped= 150
+[INFO] [1775647889.831123860] [odom_vx_covariance_probe]: elapsed= 49.0s kept=2300 warmup_dropped= 150
+[INFO] [1775647890.327428779] [odom_vx_covariance_probe]: elapsed= 49.5s kept=2325 warmup_dropped= 150
+[INFO] [1775647890.827419520] [odom_vx_covariance_probe]: elapsed= 50.0s kept=2350 warmup_dropped= 150
+[INFO] [1775647891.327476509] [odom_vx_covariance_probe]: elapsed= 50.5s kept=2375 warmup_dropped= 150
+[INFO] [1775647891.827527624] [odom_vx_covariance_probe]: elapsed= 51.0s kept=2400 warmup_dropped= 150
+[INFO] [1775647892.327449324] [odom_vx_covariance_probe]: elapsed= 51.5s kept=2425 warmup_dropped= 150
+[INFO] [1775647892.827398273] [odom_vx_covariance_probe]: elapsed= 52.0s kept=2450 warmup_dropped= 150
+[INFO] [1775647893.327470971] [odom_vx_covariance_probe]: elapsed= 52.5s kept=2475 warmup_dropped= 150
+[INFO] [1775647893.827520919] [odom_vx_covariance_probe]: elapsed= 53.0s kept=2500 warmup_dropped= 150
+[INFO] [1775647894.327472368] [odom_vx_covariance_probe]: elapsed= 53.5s kept=2525 warmup_dropped= 150
+[INFO] [1775647894.827442984] [odom_vx_covariance_probe]: elapsed= 54.0s kept=2550 warmup_dropped= 150
+[INFO] [1775647895.327860760] [odom_vx_covariance_probe]: elapsed= 54.5s kept=2575 warmup_dropped= 150
+[INFO] [1775647895.827496839] [odom_vx_covariance_probe]: elapsed= 55.0s kept=2600 warmup_dropped= 150
+[INFO] [1775647896.328315859] [odom_vx_covariance_probe]: elapsed= 55.5s kept=2625 warmup_dropped= 150
+[INFO] [1775647896.830013824] [odom_vx_covariance_probe]: elapsed= 56.0s kept=2650 warmup_dropped= 150
+[INFO] [1775647897.327564434] [odom_vx_covariance_probe]: elapsed= 56.5s kept=2675 warmup_dropped= 150
+[INFO] [1775647897.827640506] [odom_vx_covariance_probe]: elapsed= 57.0s kept=2700 warmup_dropped= 150
+[INFO] [1775647898.327671496] [odom_vx_covariance_probe]: elapsed= 57.5s kept=2725 warmup_dropped= 150
+[INFO] [1775647898.827513905] [odom_vx_covariance_probe]: elapsed= 58.0s kept=2750 warmup_dropped= 150
+[INFO] [1775647899.327776558] [odom_vx_covariance_probe]: elapsed= 58.5s kept=2775 warmup_dropped= 150
+[INFO] [1775647899.827499261] [odom_vx_covariance_probe]: elapsed= 59.0s kept=2800 warmup_dropped= 150
+[INFO] [1775647900.327623000] [odom_vx_covariance_probe]: elapsed= 59.5s kept=2825 warmup_dropped= 150
+[INFO] [1775647900.827482492] [odom_vx_covariance_probe]: elapsed= 60.0s kept=2850 warmup_dropped= 150
+
+=== Odom vx covariance probe ===
+mode                     : stationary
+topic                    : /odom
+capture duration         : 60.0 s
+warmup discarded         : 3.0 s
+kept samples             : 2850
+
+vx mean                  : -1.084202172e-19 m/s
+vx stddev                : 0.000000000e+00 m/s
+vx variance              : 0.000000000e+00 (m/s)^2
+
+Suggested use
+- Lower-bound vx covariance: 0.000000000e+00
+- Use this as the minimum noise floor only.
+- Final EKF /odom vx covariance is usually larger than this.
+
+Example
+twist_covariance_diagonal: [0.000000000e+00, 1e6, 1e6, 1e6, 1e6, 1e6]
