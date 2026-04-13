@@ -1,0 +1,11 @@
+<library path="my_bot_hw">
+  <class
+    name="my_bot_hw/Stm32SerialHardware"
+    type="my_bot_hw::Stm32SerialHardware"
+    base_class_type="hardware_interface::SystemInterface">
+    <description>
+      Hardware interface for STM32F303 motor controller via UART7 (/dev/ttyS7).
+      Implements differential drive for my_bot real robot.
+    </description>
+  </class>
+</library>

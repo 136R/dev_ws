@@ -1,0 +1,38 @@
+laser_filter:
+  ros__parameters:
+    filter1:
+      # ── 1. 距离范围过滤 ────────────────────────────────────────────────
+      # 去掉 C1 盲区近点（< 0.10m）和超出有效量程的远点（> 5.0m）
+      # 超出范围的点替换为 ±inf，slam_toolbox / Nav2 会自动忽略 inf 值
+      name: 'range_filter'
+      type: 'laser_filters/LaserScanRangeFilter'
+      params:
+        use_message_range_limits: false
+        lower_threshold: 0.10          # 低于此距离视为盲区噪点（米）
+        upper_threshold: 8.0           # 高于此距离视为无效远点（米）
+        lower_replacement_value: -.inf
+        upper_replacement_value: .inf
+
+    filter2:
+      # ── 2. 斑点过滤 ────────────────────────────────────────────────────
+      # 消除孤立的随机噪点（玻璃反射、粉尘、单点跳变等）
+      # filter_type=0 (DISTANCE)：若某点与相邻窗口内的点距离差超过阈值则删除
+      name: 'speckle_filter'
+      type: 'laser_filters/LaserScanSpeckleFilter'
+      params:
+        filter_type: 0                 # 0=DISTANCE（距离差判断），1=EUCLIDEAN（欧式聚类）
+        max_range: 8.0                 # 仅对 5.0m 以内的点做斑点检测
+        max_range_difference: 0.2     # 与窗口内点的最大允许距离差（米），超过视为斑点
+        filter_window: 4              # 检测窗口半径（检查前后各 2 个点，共 5 点窗口）
+
+    filter3:
+      # ── 3. 角度边界过滤（车体遮挡预留位）─────────────────────────────
+      # 用于屏蔽被支撑柱/线缆遮挡的固定角度扇区
+      # 当前 lower_angle = upper_angle = 0.0，即不过滤任何角度（占位状态）
+      # 调试方法：在 RViz 中观察 /scan_filtered，找到遮挡角度后填写实际范围
+      # 注意：lower_angle < upper_angle，单位为弧度（正方向逆时针）
+      name: 'angular_bounds_filter'
+      type: 'laser_filters/LaserScanAngularBoundsFilterInPlace'
+      params:
+        lower_angle: 0.0              # 【预留位】遮挡扇区起始角（弧度），调试后填写
+        upper_angle: 0.0              # 【预留位】遮挡扇区结束角（弧度），调试后填写

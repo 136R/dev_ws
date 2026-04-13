@@ -54,8 +54,8 @@ def generate_launch_description():
             ]
         ),
         launch_arguments={
-            "gz_args": ["-r -v4 ", world],
-            # "gz_args": ["-s -r -v1 ", world],
+            # "gz_args": ["-r -v4 ", world],
+            "gz_args": ["-s -r -v1 ", world],
             "on_exit_shutdown": "true",
         }.items(),
     )

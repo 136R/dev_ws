@@ -1,3 +1,8 @@
+# 删除编译缓存 (需重新编译)
+rm -rf build/ install/ log/
+
+# 编译整个功能包
+colcon build --packages-select my_bot my_bot_slam my_bot_nav gz_ros2_control --symlink-install
 # 编译
 colcon build --symlink-install --packages-select my_bot # python编译单个功能包-只需编译一次后续修改不用编译
 
@@ -7,6 +12,9 @@ colcon build --packages-select my_bot # C++ 编译单个功能包
 ros2 launch my_bot launch_sim.launch.py
 # slam_toolbox 建图
 ros2 launch slam_toolbox online_async_launch.py slam_params_file:=/home/bingda/dev_ws/src/my_bot/config/mapper_params_online_async.yaml use_sim_time:=true
+
+ros2 launch my_bot_slam slam.launch.py use_sim_time:=true mode:=mapping
+
 # rviz2
 ros2 run rviz2 rviz2 --ros-args -p use_sim_time:=true
 # 键盘控制

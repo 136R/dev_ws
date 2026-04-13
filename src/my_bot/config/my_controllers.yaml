@@ -12,18 +12,16 @@ diff_cont:
   ros__parameters:
 
     publish_rate: 50.0
+    velocity_rolling_window_size: 3
 
     base_frame_id: base_footprint
 
     left_wheel_names: ['left_wheel_joint']
     right_wheel_names: ['right_wheel_joint']
-    wheel_separation: 0.1316
-    wheel_radius: 0.0335
+    wheel_separation: 0.171
+    wheel_radius: 0.0325
 
     use_stamped_vel: false
-
-    odom_frame_id: odom
-    publish_wheel_tf: true
 
 # joint_broad:
 #   ros__parameters:

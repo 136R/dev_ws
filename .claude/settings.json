@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//dev/**)",
+      "Bash(groups $USER)",
+      "Bash(source install/setup.bash)",
+      "Bash(timeout 5 ros2 launch my_bot_hw hardware.launch.py)",
+      "Bash(timeout 8 ros2 launch my_bot_hw hardware.launch.py)"
+    ]
+  }
+}
