@@ -14,9 +14,9 @@ constexpr uint8_t COMM_HEADER_2        = 0x55u;
 constexpr uint8_t COMM_TYPE_VEL_CMD    = 0x01u;
 constexpr uint8_t COMM_TYPE_FEEDBACK   = 0x02u;
 constexpr uint8_t COMM_VEL_CMD_LEN     = 4u;
-constexpr uint8_t COMM_FEEDBACK_LEN    = 44u;
+constexpr uint8_t COMM_FEEDBACK_LEN    = 36u;  // 2×int32 encoder + accel×3 + gyro×3 + yaw×1
 constexpr size_t  COMM_VEL_FRAME_SIZE  = 5u + COMM_VEL_CMD_LEN;     //  9 bytes
-constexpr size_t  COMM_FEEDBACK_FRAME_SIZE = 5u + COMM_FEEDBACK_LEN; // 49 bytes
+constexpr size_t  COMM_FEEDBACK_FRAME_SIZE = 5u + COMM_FEEDBACK_LEN; // 41 bytes
 
 /* ── Checksum ───────────────────────────────────────────────────────── */
 
@@ -34,15 +34,15 @@ build_vel_cmd(float left_rad_s, float right_rad_s);
 /* ── Feedback frame (STM32 → ROS2) ─────────────────────────────────── */
 
 struct FeedbackFrame {
-    int32_t left_delta;    // encoder counts since last frame (left wheel)
-    int32_t right_delta;   // encoder counts since last frame (right wheel)
+    int32_t left_delta;        // encoder counts since last frame (left wheel)
+    int32_t right_delta;       // encoder counts since last frame (right wheel)
     int32_t accel_mms2[3];     // linear acceleration [mm/s²]
     int32_t gyro_urad_s[3];    // angular velocity [urad/s]
-    int32_t mag_nt[3];         // magnetic field [nT]
+    int32_t yaw_mdeg;          // Fusion AHRS Euler yaw [millidegrees]
     bool    valid;
 };
 
-// Parse a 49-byte TYPE=0x02 feedback frame starting at buf[0]=0xAA.
+// Parse a 41-byte TYPE=0x02 feedback frame starting at buf[0]=0xAA.
 // Returns FeedbackFrame with valid=false if checksum or format fails.
 FeedbackFrame parse_feedback(const uint8_t * buf, size_t len);
 

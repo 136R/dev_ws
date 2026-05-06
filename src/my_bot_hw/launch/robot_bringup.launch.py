@@ -21,34 +21,9 @@ def generate_launch_description():
         description='SLAMTEC C1 LiDAR serial port')
     use_sim_time_arg = DeclareLaunchArgument(
         'use_sim_time', default_value='false')
-    lidar_x_arg = DeclareLaunchArgument(
-        'lidar_x', default_value='-0.025',
-        description='LiDAR extrinsic x (base_link -> laser_frame), meters')
-    lidar_y_arg = DeclareLaunchArgument(
-        'lidar_y', default_value='0',
-        description='LiDAR extrinsic y (base_link -> laser_frame), meters')
-    lidar_z_arg = DeclareLaunchArgument(
-        'lidar_z', default_value='0.1058',
-        description='LiDAR extrinsic z (base_link -> laser_frame), meters')
-    lidar_roll_arg = DeclareLaunchArgument(
-        'lidar_roll', default_value='0',
-        description='LiDAR extrinsic roll (base_link -> laser_frame), radians')
-    lidar_pitch_arg = DeclareLaunchArgument(
-        'lidar_pitch', default_value='0',
-        description='LiDAR extrinsic pitch (base_link -> laser_frame), radians')
-    lidar_yaw_arg = DeclareLaunchArgument(
-        'lidar_yaw', default_value=str(3.141592653589793),
-        description='LiDAR extrinsic yaw (base_link -> laser_frame), radians')
-
     serial_port  = LaunchConfiguration('serial_port')
     lidar_port   = LaunchConfiguration('lidar_port')
     use_sim_time = LaunchConfiguration('use_sim_time')
-    lidar_x = LaunchConfiguration('lidar_x')
-    lidar_y = LaunchConfiguration('lidar_y')
-    lidar_z = LaunchConfiguration('lidar_z')
-    lidar_roll = LaunchConfiguration('lidar_roll')
-    lidar_pitch = LaunchConfiguration('lidar_pitch')
-    lidar_yaw = LaunchConfiguration('lidar_yaw')
 
     # ── Robot description ─────────────────────────────────────────
     # Reuse my_bot's robot.urdf.xacro with sim_mode:=false so it loads
@@ -62,12 +37,7 @@ def generate_launch_description():
             ' sim_mode:=false',
             ' ros2_control_config:=', hw_xacro,
             ' serial_port:=', serial_port,
-            ' lidar_x:=', lidar_x,
-            ' lidar_y:=', lidar_y,
-            ' lidar_z:=', lidar_z,
-            ' lidar_roll:=', lidar_roll,
-            ' lidar_pitch:=', lidar_pitch,
-            ' lidar_yaw:=', lidar_yaw,
+            ' lidar_yaw:=3.115414361',   # real hardware calibration (sim uses default ${pi})
         ]),
         value_type=str
     )
@@ -195,22 +165,7 @@ def generate_launch_description():
     #     ]
     # )
 
-    # 9. Host-side IMU fusion: imu_broad/imu -> /imu/data
-    imu_filter_node = Node(
-        package='imu_complementary_filter',
-        executable='complementary_filter_node',
-        name='imu_complementary_filter',
-        output='screen',
-        parameters=[
-            os.path.join(pkg_hw, 'config', 'imu_complementary_filter.yaml'),
-            {'use_sim_time': use_sim_time},
-        ],
-        remappings=[
-            ('/imu/data_raw', '/imu_broad/imu'),
-        ],
-    )
-
-    # 10. Topic relay: /diff_cont/odom → /odom
+    # 9. Topic relay: /diff_cont/odom → /odom
     # diff_drive_controller publishes /diff_cont/odom; EKF subscribes to /odom
     odom_relay_node = Node(
         package='topic_tools',
@@ -220,7 +175,7 @@ def generate_launch_description():
         output='screen',
     )
 
-    # 11. EKF node: fuses /odom + /imu/data -> /odometry/filtered
+    # 13. EKF node: fuses /odom + /imu/data -> /odometry/filtered
     # Also publishes the odom→base_footprint TF (diff_cont has enable_odom_tf: false)
     ekf_node = Node(
         package='robot_localization',
@@ -233,16 +188,16 @@ def generate_launch_description():
         ],
     )
 
+    # EKF starts after imu_broad is ready (~2.3 s spawner + controller init)
+    delayed_ekf = TimerAction(
+        period=4.0,
+        actions=[ekf_node]
+    )
+
     return LaunchDescription([
         serial_port_arg,
         lidar_port_arg,
         use_sim_time_arg,
-        lidar_x_arg,
-        lidar_y_arg,
-        lidar_z_arg,
-        lidar_roll_arg,
-        lidar_pitch_arg,
-        lidar_yaw_arg,
         rsp_node,
         ros2_control_node,
         joint_broad_spawner,
@@ -251,7 +206,6 @@ def generate_launch_description():
         lidar_node,
         laser_filter_node,
         twist_mux_node,
-        imu_filter_node,
         odom_relay_node,
-        ekf_node,
+        delayed_ekf,
     ])

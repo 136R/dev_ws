@@ -1,0 +1,13 @@
+laser_filter:
+  ros__parameters:
+    filter1:
+      # 距离范围过滤：去掉仿真传感器盲区近点和超量程远点
+      # 与 lidar.xacro 中 range/min=0.1、range/max=5.0 保持一致
+      name: 'range_filter'
+      type: 'laser_filters/LaserScanRangeFilter'
+      params:
+        use_message_range_limits: false
+        lower_threshold: 0.1
+        upper_threshold: 5.0
+        lower_replacement_value: -.inf
+        upper_replacement_value: .inf

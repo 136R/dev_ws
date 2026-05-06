@@ -233,6 +233,7 @@ hardware_interface::return_type Stm32SerialHardware::read(
   int32_t ldelta, rdelta;
   int32_t accel_mms2[3];
   int32_t gyro_urad_s[3];
+  int32_t yaw_mdeg;
   bool has_fresh_feedback;
   bool has_feedback_ever;
   std::chrono::steady_clock::time_point last_feedback_time;
@@ -243,6 +244,7 @@ hardware_interface::return_type Stm32SerialHardware::read(
     rdelta       = shared_state_.right_delta_acc;
     std::memcpy(accel_mms2, shared_state_.accel_mms2, sizeof(accel_mms2));
     std::memcpy(gyro_urad_s, shared_state_.gyro_urad_s, sizeof(gyro_urad_s));
+    yaw_mdeg = shared_state_.yaw_mdeg;
     has_fresh_feedback = shared_state_.has_fresh_feedback;
     has_feedback_ever = shared_state_.has_feedback_ever;
     last_feedback_time = shared_state_.last_feedback_time;
@@ -304,6 +306,12 @@ hardware_interface::return_type Stm32SerialHardware::read(
   }
 
   if (has_fresh_feedback) {
+    // yaw-only quaternion from STM32 Fusion AHRS (roll=0, pitch=0)
+    double yaw_rad = static_cast<double>(yaw_mdeg) * 1e-3 * M_PI / 180.0;
+    imu_states_[0] = 0.0;
+    imu_states_[1] = 0.0;
+    imu_states_[2] = std::sin(yaw_rad / 2.0);
+    imu_states_[3] = std::cos(yaw_rad / 2.0);
     imu_states_[4] = static_cast<double>(gyro_urad_s[0]) * 1e-6;
     imu_states_[5] = static_cast<double>(gyro_urad_s[1]) * 1e-6;
     imu_states_[6] = static_cast<double>(gyro_urad_s[2]) * 1e-6;
@@ -385,6 +393,7 @@ void Stm32SerialHardware::rx_thread_fn()
         shared_state_.right_delta_acc += fb.right_delta;
         std::memcpy(shared_state_.accel_mms2, fb.accel_mms2, sizeof(shared_state_.accel_mms2));
         std::memcpy(shared_state_.gyro_urad_s, fb.gyro_urad_s, sizeof(shared_state_.gyro_urad_s));
+        shared_state_.yaw_mdeg = fb.yaw_mdeg;
         shared_state_.has_fresh_feedback = true;
         shared_state_.has_feedback_ever = true;
         shared_state_.last_feedback_time = std::chrono::steady_clock::now();

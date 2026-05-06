@@ -1,15 +1,15 @@
 ekf_filter_node:
   ros__parameters:
     frequency: 100.0
-    transform_time_offset: 0.03 # TF发布允许延迟
-    sensor_timeout: 0.08   # 50 Hz IMU fusion output; allows one dropped sample
+    transform_time_offset: 0.04 # TF发布允许延迟
+    sensor_timeout: 0.08   # 100 Hz IMU fusion output; allows one dropped sample
     two_d_mode: true
 
     odom_frame: odom
     base_link_frame: base_footprint
     world_frame: odom
     publish_tf: true         # EKF publishes odom→base_footprint TF (diff_cont has enable_odom_tf: false)
-    print_diagnostics: true
+    print_diagnostics: false
 
     # Source 1: wheel encoder odometry via diff_drive_controller
     # Only use vx (linear velocity) — let IMU handle heading
@@ -17,23 +17,24 @@ ekf_filter_node:
     odom0_config: [false, false, false,  # x y z      (EKF integrates position)
                    false, false, false,  # roll pitch yaw
                    true,  false, false,  # vx vy vz   ← encoder linear velocity
-                   false, false, false,  # angular velocity (delegated to IMU)
+                   false, false, false,   # angular velocity z ← encoder yaw rate anchors IMU drift
                    false, false, false]  # acceleration
     odom0_differential: false
     odom0_relative: false
     odom0_queue_size: 10
 
     # Source 2: Host-fused IMU orientation from imu_complementary_filter
-    imu0: /imu/data
+    # imu0: /imu/data
+    imu0: /imu_broad/imu
     imu0_config: [false, false, false,  # x y z
-                  false, false, false,   # roll pitch yaw
+                  false, false, true,   # roll pitch yaw
                   false, false, false,  # linear velocity
-                  false, false, true,   # angular velocity z
+                  false, false, false,   # angular velocity z
                   false, false, false]  # acceleration
-    imu0_differential: false
+    imu0_differential: true
     imu0_relative: false
     imu0_queue_size: 10
-    imu0_remove_gravitational_acceleration: false
+    # imu0_remove_gravitational_acceleration: false
 
 # [ADVANCED] The process noise covariance matrix can be difficult to tune, and can vary for each application, so it is
 # exposed as a configuration parameter. This matrix represents the noise we add to the total error after each

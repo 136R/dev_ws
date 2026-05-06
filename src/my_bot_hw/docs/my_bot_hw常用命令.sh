@@ -19,6 +19,11 @@ ros2 launch my_bot navigation_launch.py params_file:=/home/orangepi/dev_ws/src/m
 ros2 run teleop_twist_keyboard teleop_twist_keyboard \
   --ros-args -r cmd_vel:=/cmd_vel_keyboard
 
+# 键盘控制 - 设目标速度
+ros2 run teleop_twist_keyboard teleop_twist_keyboard \
+  --ros-args -r cmd_vel:=/cmd_vel_keyboard \
+  -p speed:=0.2 -p turn:=0.6
+
 # 里程计查看
 ./src/script/monitor.py
 

@@ -1,7 +1,8 @@
 # ============================================================
 # nav2_params.yaml
 # 基于官方 Humble 源文件修改
-# 机器人：my_bot 差速机器人 12.3x14.2x10cm / 2.5kg
+# 机器人：my_bot 差速机器人 长12.3cm × 宽20.2cm（含车轮）/ 2.5kg
+# 底盘 box: 0.123×0.13×0.0958m，底盘中心偏 x=-0.0275，轮外缘 y=±0.101m
 # 修改标注：# [改] 表示修改项，# [官方] 表示保留原值供对比
 # ============================================================
 
@@ -14,7 +15,7 @@ bt_navigator:
   ros__parameters:
     use_sim_time: False
     global_frame: map
-    robot_base_frame: base_link
+    robot_base_frame: base_footprint
     odom_topic: /odometry/filtered
     bt_loop_duration: 10
     default_server_timeout: 20
@@ -107,9 +108,9 @@ controller_server:
     # [改] 官方 DWBLocalPlanner → MPPIController
     FollowPath:
       plugin: "nav2_mppi_controller::MPPIController"
-      time_steps: 30
+      time_steps: 56                  # [改] 30→56，预测时域 1.5s→2.8s，前瞻距离 0.3m→0.56m
       model_dt: 0.05                  # 必须 = 1/controller_frequency = 0.05
-      batch_size: 800
+      batch_size: 2000                # [改] 800→2000，Nav2 官方推荐，Orange Pi 5 Pro 可承受
       ax_max: 1.0
       ax_min: -1.0
       ay_max: 3.0
@@ -120,7 +121,7 @@ controller_server:
       vx_max: 0.2                     # [改] 官方 0.26 → 0.4，机器人最大线速度
       vx_min: -0.2                    # [改] 官方无倒车 → 允许倒车 -0.3
       vy_max: 0.0
-      wz_max: 1.0                     # [改] 官方 1.0 → 1.2，机器人最大角速度
+      wz_max: 0.6                     # [改] 对齐 hw_controllers.yaml angular.z.max_velocity=0.6，避免被控制器静默截断
       iteration_count: 1
       prune_distance: 1.7
       transform_tolerance: 0.1
@@ -144,7 +145,7 @@ controller_server:
         cost_power: 1
         cost_weight: 3.81
         critical_cost: 300.0
-        consider_footprint: false     # [重要] 使用 robot_radius 圆形时必须为 false
+        consider_footprint: true      # [改] 切换到 footprint 多边形后改为 true，碰撞检测更精确
         collision_cost: 1000000.0
         near_goal_distance: 1.0
         trajectory_point_step: 2
@@ -202,12 +203,13 @@ local_costmap:
       width: 3
       height: 3
       resolution: 0.05
-      robot_radius: 0.12              # [改] 官方 0.22（TB3）→ 0.15（my_bot 内切圆半径）
+      # [改] robot_radius→footprint：长12.4cm×宽20.5cm，外接圆0.12m→实际多边形，可通过更窄的走廊
+      footprint: "[[0.035, 0.101], [0.035, -0.101], [-0.089, -0.101], [-0.089, 0.101]]"
       plugins: ["voxel_layer", "inflation_layer"]
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 3.0
-        inflation_radius: 0.30        # [改] 官方 0.55 → 0.30（robot_radius + 0.15 安全余量）
+        inflation_radius: 0.15        # [改] 官方 0.55 → 0.30（robot_radius + 0.15 安全余量）
       voxel_layer:
         plugin: "nav2_costmap_2d::VoxelLayer"
         enabled: True
@@ -244,7 +246,8 @@ global_costmap:
       global_frame: map
       robot_base_frame: base_link
       use_sim_time: False
-      robot_radius: 0.12              # [改] 官方 0.22 → 0.15
+      # [改] robot_radius→footprint：与 local_costmap 保持一致
+      footprint: "[[0.035, 0.101], [0.035, -0.101], [-0.089, -0.101], [-0.089, 0.101]]"
       resolution: 0.05
       track_unknown_space: true
       plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
@@ -268,7 +271,7 @@ global_costmap:
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 3.0
-        inflation_radius: 0.25        # [改] 官方 0.55 → 0.30
+        inflation_radius: 0.15        # [改] 0.25→0.30，与 local_costmap 对齐，避免全局路径穿越局部高代价区
       always_send_full_costmap: True
 
 # ============================================================
@@ -302,7 +305,7 @@ planner_server:
       downsample_costmap: false
       downsampling_factor: 1
       allow_unknown: true
-      max_iterations: 20000                      # [改] 官方 1000000 → 20000
+      max_iterations: 1000000                    # [改] 20000→1000000，恢复官方值，20000 在大地图会规划失败
       max_on_approach_iterations: 1000
       max_planning_time: 5.0
       cost_travel_multiplier: 2.0
@@ -385,10 +388,10 @@ velocity_smoother:
     smoothing_frequency: 20.0
     scale_velocities: true
     feedback: "OPEN_LOOP"
-    max_velocity: [0.2, 0.0, 1.0]    # [改] 官方 [0.26,0,1.0] → 匹配机器人最大速度
-    min_velocity: [-0.2, 0.0, -1.0]  # [改] 官方 [-0.26,0,-1.0] → 允许倒车
-    max_accel: [1.0, 0.0, 1.5]       # [改] 官方 [2.5,0,3.2] → 适当保守
-    max_decel: [-1.0, 0.0, -1.5]     # [改] 官方 [-2.5,0,-3.2] → 适当保守
+    max_velocity: [0.2, 0.0, 0.6]    # [改] wz 1.0→0.6，对齐 hw_controllers angular.z.max_velocity
+    min_velocity: [-0.2, 0.0, -0.6]  # [改] wz -1.0→-0.6，对齐 hw_controllers
+    max_accel: [0.8, 0.0, 1.5]       # [改] vx 1.0→0.8，对齐 hw_controllers linear.x.max_acceleration
+    max_decel: [-0.8, 0.0, -1.5]     # [改] vx -1.0→-0.8，对齐 hw_controllers
     odom_topic: "odom"
     odom_duration: 0.1
     deadband_velocity: [0.0, 0.0, 0.0]

@@ -97,6 +97,7 @@ private:
     int32_t right_delta_acc{0};
     int32_t accel_mms2[3]{0, 0, 0};
     int32_t gyro_urad_s[3]{0, 0, 0};
+    int32_t yaw_mdeg{0};         // Fusion AHRS Euler yaw [millidegrees]
     bool    has_fresh_feedback{false};
     bool    has_feedback_ever{false};
     std::chrono::steady_clock::time_point last_feedback_time{};

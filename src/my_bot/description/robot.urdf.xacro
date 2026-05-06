@@ -4,8 +4,8 @@
     <xacro:arg name="sim_mode" default="true" />
     <xacro:arg name="ros2_control_config" default="" />
     <!-- LiDAR extrinsics (base_link -> laser_frame). Defaults match current model. -->
-    <xacro:arg name="lidar_x" default="-0.025" />
-    <xacro:arg name="lidar_y" default="0" />
+    <xacro:arg name="lidar_x" default="-0.026" />
+    <xacro:arg name="lidar_y" default="-0.0035" />
     <xacro:arg name="lidar_z" default="0.1058" />
     <xacro:arg name="lidar_roll" default="0" />
     <xacro:arg name="lidar_pitch" default="0" />

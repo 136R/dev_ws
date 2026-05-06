@@ -8,7 +8,7 @@ slam_toolbox:
     ceres_trust_strategy: LEVENBERG_MARQUARDT
     ceres_dogleg_type: TRADITIONAL_DOGLEG
     ceres_loss_function: None
-    num_threads: 4  # Orange Pi 5 Pro (was 12 for PC)
+    # num_threads: 4  # Orange Pi 5 Pro (was 12 for PC)
 
     # ROS Parameters
     odom_frame: odom
@@ -18,8 +18,9 @@ slam_toolbox:
     use_map_saver: true
     mode: localization   
 
-    map_file_name: /home/orangepi/dev_ws/src/my_bot_slam/config/maps/my_map_serial
+    map_file_name: /home/orangepi/dev_ws/src/my_bot_slam/config/serialize_map/my_map
     map_start_pose: [0.0, 0.0, 0.0]
+    # map_start_at_dock: true
 
     # No map_file_name or map_start_pose needed for mapping mode
 
@@ -29,7 +30,7 @@ slam_toolbox:
     map_update_interval: 2.0
     resolution: 0.05
     min_laser_range: 0.1
-    max_laser_range: 8.0
+    max_laser_range: 4.0
     minimum_time_interval: 0.1
     transform_timeout: 0.5
     tf_buffer_duration: 30.0
@@ -43,7 +44,7 @@ slam_toolbox:
     minimum_travel_heading: 0.2
     scan_buffer_size: 10
     scan_buffer_maximum_scan_distance: 10.0
-    link_match_minimum_response_fine: 0.1
+    link_match_minimum_response_fine: 0.35
     link_scan_maximum_distance: 1.5
     loop_search_maximum_distance: 3.0
     do_loop_closing: true
@@ -53,8 +54,8 @@ slam_toolbox:
     loop_match_minimum_response_fine: 0.45
 
     correlation_search_space_dimension: 0.5
-    correlation_search_space_resolution: 0.05
-    correlation_search_space_smear_deviation: 0.1
+    correlation_search_space_resolution: 0.01
+    correlation_search_space_smear_deviation: 0.03
 
     loop_search_space_dimension: 8.0
     loop_search_space_resolution: 0.05

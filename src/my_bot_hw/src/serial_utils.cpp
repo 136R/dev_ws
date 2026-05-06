@@ -66,18 +66,16 @@ FeedbackFrame parse_feedback(const uint8_t * buf, size_t len)
             (static_cast<uint32_t>(p[3]) << 24));
     };
 
-    result.left_delta   = unpack_i32(&data[0]);
-    result.right_delta  = unpack_i32(&data[4]);
+    result.left_delta    = unpack_i32(&data[0]);
+    result.right_delta   = unpack_i32(&data[4]);
     result.accel_mms2[0] = unpack_i32(&data[8]);
     result.accel_mms2[1] = unpack_i32(&data[12]);
     result.accel_mms2[2] = unpack_i32(&data[16]);
     result.gyro_urad_s[0] = unpack_i32(&data[20]);
     result.gyro_urad_s[1] = unpack_i32(&data[24]);
     result.gyro_urad_s[2] = unpack_i32(&data[28]);
-    result.mag_nt[0] = unpack_i32(&data[32]);
-    result.mag_nt[1] = unpack_i32(&data[36]);
-    result.mag_nt[2] = unpack_i32(&data[40]);
-    result.valid        = true;
+    result.yaw_mdeg      = unpack_i32(&data[32]);
+    result.valid         = true;
     return result;
 }
 

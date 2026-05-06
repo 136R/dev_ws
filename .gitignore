@@ -2,19 +2,31 @@
 build/
 install/
 log/
-<<<<<<< HEAD
-# docs/vendor/
-# src/gz_ros2_control/
-src/articubot_one/
-src/articubot_one/
-=======
 
-# SLAM 地图文件（可选，看你是否想保留）
-src/my_bot/config/slam/*.pgm
-src/my_bot/config/slam/*.yaml
+# Python 缓存
+__pycache__/
+*.pyc
+
+# 地图文件（体积大，单独备份）
+*.pgm
+*.yaml.bak
 
 # 系统文件
 .DS_Store
-__pycache__/
-*.pyc
->>>>>>> b89ff44f13a18da31012edef6f5dcd57213055f7
+
+
+# src/gz_ros2_control/
+src/articubot_one/
+
+# Tooling (optional)
+.codex
+.claude/
+
+# Editor (optional)
+.vscode/
+
+# stm32层
+firmware/
+
+# 硬件雷达驱动包
+src/sllidar_ros2/

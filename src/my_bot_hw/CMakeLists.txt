@@ -56,6 +56,9 @@ install(
 )
 
 install(PROGRAMS
+  scripts/imu_pipeline_monitor.py
+  scripts/imu_gyro_bias.py
+  scripts/imu_gyro_deadband.py
   scripts/straight_drive_corrector.py
   DESTINATION lib/${PROJECT_NAME}
 )

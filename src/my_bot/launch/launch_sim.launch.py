@@ -104,6 +104,19 @@ def generate_launch_description():
         remappings=[("/cmd_vel_out", "/cmd_vel")],
     )
 
+    laser_filter_params = os.path.join(
+        get_package_share_directory(package_name), "config", "laser_filters_sim.yaml"
+    )
+    laser_filter = Node(
+        package="laser_filters",
+        executable="scan_to_scan_filter_chain",
+        parameters=[laser_filter_params],
+        remappings=[
+            ("scan",          "/scan"),
+            ("scan_filtered", "/scan_filtered"),
+        ],
+    )
+
     # Launch them all!
     return LaunchDescription(
         [
@@ -115,5 +128,6 @@ def generate_launch_description():
             diff_drive_spawner,
             joint_broad_spawner,
             twist_mux,
+            laser_filter,
         ]
     )

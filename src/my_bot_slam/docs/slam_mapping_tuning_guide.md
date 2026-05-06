@@ -1,0 +1,306 @@
+# SLAM Toolbox 建图调参指南
+
+> 配置文件：`config/mapper_params_hw_mapping.yaml`
+> 数据流：`/scan_filtered` → **slam_toolbox** → `/map` + TF `map→odom`
+> 参考来源：[slam_toolbox GitHub](https://github.com/SteveMacenski/slam_toolbox)、源码 `karto_sdk/src/Mapper.cpp`、Steve Macenski ROSCon 2019 演讲、社区 Issue 讨论
+
+---
+
+## 一、建图流程与参数分组
+
+```
+新一帧 /scan_filtered 到达
+  │
+  ├─ [1] 帧插入判断        minimum_travel_distance / minimum_travel_heading
+  │                         minimum_time_interval
+  │
+  ├─ [2] 局部扫描匹配      correlation_search_space_*
+  │       (当前帧 vs 缓冲区内近邻帧)   scan_buffer_size
+  │
+  ├─ [3] 建立扫描链接      link_match_minimum_response_fine
+  │                         link_scan_maximum_distance
+  │
+  ├─ [4] 回环检测          loop_search_maximum_distance
+  │       (当前帧 vs 历史帧)  loop_match_minimum_response_*
+  │                         loop_search_space_*
+  │
+  └─ [5] 图优化（Ceres）   solver_plugin 参数
+         更新地图格栅        resolution / occupancy_threshold
+```
+
+**核心认知（来自源码注释）**：步骤 2 负责"走路不漂"，步骤 4 负责"回到起点地图闭合"。两套参数互相独立，分开调。
+
+---
+
+## 二、帧插入参数（何时采集新扫描帧）
+
+
+| 参数                      | 当前值 | slam_toolbox 默认值 | 含义                                      |
+| ------------------------- | ------ | ------------------- | ----------------------------------------- |
+| `minimum_travel_distance` | `0.2`  | `0.5`               | 至少走多远才插入新帧（米）                |
+| `minimum_travel_heading`  | `0.2`  | `0.5`               | 至少转多大角度才插入新帧（弧度，约 11°） |
+| `minimum_time_interval`   | `0.1`  | `0.5`               | 两帧最小时间间隔（秒）                    |
+| `throttle_scans`          | `1`    | `1`                 | 每收到 N 帧才处理 1 帧（降采样）          |
+
+### 你的值 vs 默认值分析
+
+`minimum_travel_distance: 0.2` 和 `minimum_travel_heading: 0.2` 比默认值激进一倍——**对小空间室内建图是正确的**。
+
+slam_toolbox 默认值 0.5 是为大型机器人（Fetch、PR2 等）设计的。小车在转弯处需要密集的扫描帧才能匹配好弯道墙壁。代价是地图文件更大，但 Orange Pi 5 Pro 内存足够。
+
+### 调整方向
+
+
+| 现象                   | 操作                                    |
+| ---------------------- | --------------------------------------- |
+| 走直线时地图有轻微锯齿 | `minimum_travel_distance` 改 `0.3`      |
+| 转弯处墙体出现断裂     | `minimum_travel_distance` 改 `0.1`      |
+| CPU 占用过高           | `throttle_scans: 2`（每 2 帧处理 1 帧） |
+
+---
+
+## 三、局部扫描匹配参数（走路不漂的关键）
+
+控制**相邻扫描帧的对齐精度**，直接决定直线段的地图质量。
+
+### 搜索空间参数
+
+
+| 参数                                       | 当前值 | 社区推荐值 | 含义                                   |
+| ------------------------------------------ | ------ | ---------- | -------------------------------------- |
+| `correlation_search_space_dimension`       | `0.5`  | `0.5`      | 搜索空间总宽度（米），实际搜索 ±0.25m |
+| `correlation_search_space_resolution`      | `0.05` | **`0.01`** | 搜索步长（米），**当前值偏粗**         |
+| `correlation_search_space_smear_deviation` | `0.1`  | `0.03`     | 点云高斯模糊半径（米）                 |
+
+**`correlation_search_space_resolution` 是最重要的参数之一。**
+
+来自 slam_toolbox 源码注释（`Mapper.cpp`）：
+
+```
+// The search space is scanned at this resolution to find the best match.
+// Lower values give more accurate results but require more computation.
+```
+
+当前值 `0.05`（5cm 步长）意味着扫描匹配的**位置精度上限是 5cm**。改为 `0.01` 后精度提升到 1cm，CPU 代价约增加 25 倍，但 Orange Pi 5 Pro 单次匹配耗时仍 < 10ms，可承受。
+
+`correlation_search_space_smear_deviation` 控制将点云每个点"涂抹"成高斯分布的半径，值越大越容错但精度下降。社区讨论（[slam_toolbox Issue #383](https://github.com/SteveMacenski/slam_toolbox/issues/383)）表明对小机器人应适当减小。
+
+### 扫描缓冲区参数
+
+
+| 参数                                | 当前值 | 含义                       |
+| ----------------------------------- | ------ | -------------------------- |
+| `scan_buffer_size`                  | `10`   | 保留最近 N 帧用于局部匹配  |
+| `scan_buffer_maximum_scan_distance` | `10.0` | 缓冲区内帧的最大间距（米） |
+
+`scan_buffer_size: 10` 对 10 Hz 雷达 + `minimum_travel_distance: 0.2` 的配置，等价于保留约 2m 路程内的历史帧，**足够**。小房间（< 3m × 3m）可减到 `5`。
+
+### 链接创建参数
+
+
+| 参数                               | 当前值 | 含义                                   |
+| ---------------------------------- | ------ | -------------------------------------- |
+| `link_match_minimum_response_fine` | `0.1`  | 创建扫描链接的最低匹配分（0~1）        |
+| `link_scan_maximum_distance`       | `1.5`  | 两帧相距超过此距离不创建直接链接（米） |
+
+**`link_match_minimum_response_fine: 0.1` 偏低。** 来自 slam_toolbox 官方 README：
+
+> "A higher value here means fewer, higher-quality links are created. Lower values can create more links but may include erroneous connections."
+
+0.1 意味着几乎任何匹配结果都被接受。在长走廊（特征少）里可能创建错误链接导致地图漂移。社区推荐值通常在 `0.35~0.5`。
+
+---
+
+## 四、回环检测参数（地图闭合的关键）
+
+回环检测决定机器人回到已建图区域时能否正确"认出来"并把地图接上。
+
+### 回环搜索范围
+
+
+| 参数                           | 当前值 | 含义                                         |
+| ------------------------------ | ------ | -------------------------------------------- |
+| `loop_search_maximum_distance` | `3.0`  | 当前位置 3m 以内的历史帧才参与回环检测（米） |
+| `do_loop_closing`              | `true` | 是否启用回环检测                             |
+
+**`loop_search_maximum_distance: 3.0` 在室内环境是常见坑。**
+
+假设房间是 4m × 5m：从一端走到另一端约 5m，超过 3m，回环检测**不会触发**，地图会出现轻微偏移。
+
+来自 slam_toolbox [Issue #232](https://github.com/SteveMacenski/slam_toolbox/issues/232)，Steve Macenski 本人回复推荐将此值设为**环境最长对角线的 1.2 倍**。
+
+### 回环匹配质量门控
+
+
+| 参数                                 | 当前值 | 含义                                 |
+| ------------------------------------ | ------ | ------------------------------------ |
+| `loop_match_minimum_chain_size`      | `10`   | 必须有连续 10 帧都匹配才确认回环     |
+| `loop_match_maximum_variance_coarse` | `3.0`  | 粗匹配阶段允许的最大位置方差（米²） |
+| `loop_match_minimum_response_coarse` | `0.35` | 粗匹配阶段最低分（0~1）              |
+| `loop_match_minimum_response_fine`   | `0.45` | 精匹配阶段最低分（0~1）              |
+
+两级过滤：先粗匹配（快速筛选候选帧），通过的再精匹配（用完整扫描对齐）。
+
+`loop_match_minimum_chain_size: 10` 是防止"幻觉回环"的关键——10 帧连续认出才确认，大幅减少误判。**不要调小**。
+
+### 回环搜索空间
+
+
+| 参数                                | 当前值 | 含义                              |
+| ----------------------------------- | ------ | --------------------------------- |
+| `loop_search_space_dimension`       | `8.0`  | 回环匹配搜索范围（米），实际 ±4m |
+| `loop_search_space_resolution`      | `0.05` | 回环搜索步长（米）                |
+| `loop_search_space_smear_deviation` | `0.03` | 回环点云高斯模糊半径              |
+
+回环搜索分辨率 `0.05` 比局部匹配粗是**正常设计**——回环只需找到大致位置，精对齐由图优化完成。
+
+---
+
+## 五、图优化参数（Ceres Solver）
+
+
+| 参数                   | 当前值                   | 说明                                          |
+| ---------------------- | ------------------------ | --------------------------------------------- |
+| `solver_plugin`        | `CeresSolver`            | Google Ceres，精度最高，slam_toolbox 推荐选项 |
+| `ceres_linear_solver`  | `SPARSE_NORMAL_CHOLESKY` | 稀疏矩阵求解，适合中等规模地图                |
+| `ceres_preconditioner` | `SCHUR_JACOBI`           | 预处理器，加速收敛                            |
+| `ceres_trust_strategy` | `LEVENBERG_MARQUARDT`    | LM 是鲁棒性和速度的平衡点                     |
+| `ceres_loss_function`  | `None`                   | 不使用鲁棒核函数                              |
+
+**你的选择是标准配置，无需改动。**
+
+唯一可能调整的场景：建图区域非常大（> 50m × 50m）或回环帧数 > 500 时，改 `ceres_linear_solver: SPARSE_SCHUR` 可加快求解（[Ceres 官方推荐](http://ceres-solver.org/solving_faqs.html)）。
+
+---
+
+## 六、地图参数
+
+
+| 参数                  | 当前值 | 含义                                          |
+| --------------------- | ------ | --------------------------------------------- |
+| `resolution`          | `0.05` | 栅格地图分辨率（米/格），0.05 = 5cm/格        |
+| `occupancy_threshold` | `0.5`  | 概率超过 0.5 的格子标记为占据                 |
+| `map_update_interval` | `2.0`  | 每 2 秒刷新一次可视化地图（不影响内部位姿图） |
+
+`resolution: 0.05` 适合家庭室内导航。如果需要通过 10~15cm 的缝隙，改 `0.025`（内存增至约 4 倍）。
+
+`occupancy_threshold: 0.5` 是 Elfes 1989 原始论文的标准值，**不要修改**。
+
+---
+
+## 七、针对你的机器人：推荐修改项
+
+基于以上分析，配置需要 3 处修改：
+
+### 修改 1：提高局部匹配精度（最重要）
+
+```yaml
+# 修改前
+correlation_search_space_resolution: 0.05
+correlation_search_space_smear_deviation: 0.1
+
+# 修改后
+correlation_search_space_resolution: 0.01   # 1cm 精度，社区标准推荐值
+correlation_search_space_smear_deviation: 0.03  # 减小模糊，配合高精度搜索
+```
+
+**预期效果**：直线走廊的墙体线条从"毛边"变"利边"。
+
+### 修改 2：放大回环检测范围
+
+```yaml
+# 修改前
+loop_search_maximum_distance: 3.0
+
+# 修改后
+loop_search_maximum_distance: 5.0   # 覆盖 4m×5m 房间对角线约 6.4m
+```
+
+**预期效果**：回到起点时地图能正确闭合，不再出现"两条平行的墙"。
+
+### 修改 3：提高链接创建质量门控
+
+```yaml
+# 修改前
+link_match_minimum_response_fine: 0.1
+
+# 修改后
+link_match_minimum_response_fine: 0.35  # 与 loop_match_minimum_response_coarse 对齐
+```
+
+**预期效果**：减少特征少的走廊里的误链接，长走廊建图漂移减轻。
+
+---
+
+## 八、建图操作规范（影响结果同调参一样重要）
+
+来源：Steve Macenski ROSCon 2019 演讲 + 社区经验汇总
+
+```
+1. 速度：建图时最大 0.1 m/s（你的机器人最大 0.2，建图时手动限速）
+         原因：思岚 C1 旋转频率 10 Hz，0.1m/s 时每圈走 1cm，运动模糊可忽略
+
+2. 路径：每个区域来回走 2 遍（去一次 + 回一次 = 产生回环）
+         不要只走一遍环形路——走到终点前必须先"看到"出发点的特征
+
+3. 转弯：在转角处放慢到 0.05 m/s，给 SLAM 足够的帧对齐弯道
+
+4. 特征少的区域（白墙长走廊）：走 S 形而不是直线
+         原因：S 形让雷达扫到更多不同角度的墙面特征
+
+5. 建完图后：原地静止 3 秒再保存，确保最后一帧完成优化
+```
+
+---
+
+## 九、建图质量验证
+
+### 快速验证（每次建图后执行）
+
+```bash
+# 确认 SLAM 正在运行
+ros2 topic hz /map           # 应约 0.5 Hz（map_update_interval=2.0）
+
+# 开启调试日志，观察回环是否触发（临时修改 debug_logging: true 后重启）
+ros2 launch my_bot_slam slam.launch.py mode:=mapping 2>&1 | grep -i "loop"
+# 正常触发回环时会看到：
+# [slam_toolbox]: Registering loop closure...
+# [slam_toolbox]: Loop closed! Response: 0.XX
+```
+
+### RViz 地图质量检查清单
+
+```
+□ 直线墙体是否连续（不应有断裂或平行双线）
+□ 转角是否呈直角（不应呈弧形）
+□ 回到起点时墙体是否闭合（不应有错位台阶）
+□ 地图边缘是否有大量黑色孤点（有则先调 laser_filters.yaml）
+```
+
+### 地图保存
+
+```bash
+# 方法 1：保存位姿图（用于下次 localization 模式加载）
+ros2 service call /slam_toolbox/save_map slam_toolbox/srv/SaveMap \
+  '{name: {data: "src/my_bot_slam/config/maps/my_map_serial"}}'
+
+# 保存序列化地图 用于 localization 模式定位
+ros2 service call /slam_toolbox/serialize_map \
+slam_toolbox/srv/SerializePoseGraph \
+"{filename: '/home/orangepi/dev_ws/src/my_bot_slam/config/serialize_map/my_map'}"
+```
+
+---
+
+## 十、常见建图问题速查
+
+
+| 现象                            | 根因参数                 | 操作                                                           |
+| ------------------------------- | ------------------------ | -------------------------------------------------------------- |
+| 直线走廊出现平行双线            | 局部匹配精度不足         | `correlation_search_space_resolution` 从 `0.05` 改 `0.01`      |
+| 回到起点地图错位（台阶状）      | 回环未触发               | `loop_search_maximum_distance` 增大到 `5.0~8.0`                |
+| 地图偶尔出现大幅跳变            | 错误回环                 | `loop_match_minimum_response_fine` 从 `0.45` 增大到 `0.55`     |
+| 转弯处墙体呈弧形                | 帧插入太稀               | `minimum_travel_heading` 从 `0.2` 改 `0.1`                     |
+| CPU 占用 > 80%，帧处理延迟      | 搜索分辨率过高           | `throttle_scans: 2`，或取消注释 `num_threads: 4`               |
+| 地图有大量孤立黑点              | 雷达噪点未过滤干净       | 先调`laser_filters.yaml`，参见 `laser_filters_tuning_guide.md` |
+| SLAM 进程崩溃（stack overflow） | `stack_size_to_use` 不足 | 从`40000000` 改 `80000000`                                     |
