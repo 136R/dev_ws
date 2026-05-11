@@ -1,11 +1,9 @@
-# CLAUDE.md
-
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+# AGENTS.md
 
 平台信息
 
 - **硬件：** Orange Pi 5 Pro（ARM Cortex-A76，RK3588），运行 ROS2 Humble
-- **机器人：** 自制差速驱动小车，STM32F303RBT6 MCU 负责底层电机与传感器控制
+- **机器人：** 自制差速驱动小车，STM32F303 MCU 负责底层电机与传感器控制
 - **固件位置：** `firmware/my_robot_stm32/`（STM32CubeIDE 工程，不参与 colcon 构建）
 
 ## 构建
@@ -22,6 +20,7 @@ source install/setup.bash                                  # 每次新终端必�
 ## 包架构
 
 `src/` 下共五个包：
+
 
 | 包名           | 职责                                                                    |
 | -------------- | ----------------------------------------------------------------------- |
@@ -58,10 +57,12 @@ TwistMux: /cmd_vel_keyboard (90) + /cmd_vel_nav (70) → /diff_cont/cmd_vel_unst
 
 ## 配置文件
 
+
 | 文件                                                  | 用途                                   |
 | ----------------------------------------------------- | -------------------------------------- |
 | `src/my_bot_hw/config/hw_controllers.yaml`            | 控制器频率、轮系几何校正倍数、速度限制 |
 | `src/my_bot_hw/config/ekf_hw.yaml`                    | EKF 融合权重与协方差                   |
+| `src/my_bot_hw/config/imu_complementary_filter.yaml`  | 互补滤波器参数                         |
 | `src/my_bot_hw/config/laser_filters.yaml`             | 激光雷达距离/角度过滤                  |
 | `src/my_bot_slam/config/mapper_params_hw*.yaml`       | 实机 SLAM Toolbox 调参                 |
 | `src/my_bot_nav/config/nav2_params_hw.yaml`           | Nav2 规划器/控制器调参                 |
@@ -76,4 +77,3 @@ TwistMux: /cmd_vel_keyboard (90) + /cmd_vel_nav (70) → /diff_cont/cmd_vel_unst
 - `src/my_bot_slam/docs/slam_cheatsheet.md`
 - `src/my_bot_nav/docs/nav_cheatsheet.md`
 - `docs/` —— 仓库级架构与工作流文档
-

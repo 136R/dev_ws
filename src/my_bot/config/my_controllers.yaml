@@ -1,6 +1,6 @@
 controller_manager:
   ros__parameters:
-    update_rate: 50
+    update_rate: 100
 
     diff_cont:
       type: diff_drive_controller/DiffDriveController
@@ -11,17 +11,37 @@ controller_manager:
 diff_cont:
   ros__parameters:
 
-    publish_rate: 50.0
+    publish_rate: 100.0
     velocity_rolling_window_size: 3
 
     base_frame_id: base_footprint
 
     left_wheel_names: ['left_wheel_joint']
     right_wheel_names: ['right_wheel_joint']
-    wheel_separation: 0.171
+    wheel_separation: 0.175
     wheel_radius: 0.035
 
     use_stamped_vel: false
+
+    enable_odom_tf: false
+
+    linear:
+      x:
+        has_velocity_limits: true
+        max_velocity: 0.2
+        min_velocity: -0.2
+        has_acceleration_limits: true
+        max_acceleration: 0.8
+        has_jerk_limits: false
+
+    angular:
+      z:
+        has_velocity_limits: true
+        max_velocity: 0.6
+        min_velocity: -0.6
+        has_acceleration_limits: true
+        max_acceleration: 1.5
+        has_jerk_limits: false
 
 # joint_broad:
 #   ros__parameters:

@@ -16,10 +16,10 @@ slam_toolbox:
     base_frame: base_footprint
     scan_topic: /scan_filtered
     use_map_saver: true
-    mode: localization   
+    mode: mapping   
 
-    map_file_name: /home/orangepi/dev_ws/src/my_bot_slam/config/serialize_map/my_map
-    map_start_pose: [0.0, 0.0, 0.0]
+    # map_file_name: /home/orangepi/dev_ws/src/my_bot_slam/config/serialize_map/my_map
+    # map_start_pose: [0.0, 0.0, 0.0]
     # map_start_at_dock: true
 
     # No map_file_name or map_start_pose needed for mapping mode

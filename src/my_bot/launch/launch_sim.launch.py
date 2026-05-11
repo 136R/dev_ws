@@ -37,7 +37,7 @@ def generate_launch_description():
     world_arg = DeclareLaunchArgument(
         "world",
         default_value=os.path.join(
-            get_package_share_directory(package_name), "worlds", "my_world.sdf"
+            get_package_share_directory(package_name), "worlds", "my_world_d.sdf"
         ),
         description="World to load",
     )
@@ -64,7 +64,7 @@ def generate_launch_description():
     spawn_entity = Node(
         package="ros_gz_sim",
         executable="create",
-        arguments=["-topic", "robot_description", "-name", "my_bot", "-z", "0.05"],
+        arguments=["-topic", "robot_description", "-name", "my_bot", "-z", "0.001"],
         output="screen",
     )
 
@@ -110,11 +110,22 @@ def generate_launch_description():
     laser_filter = Node(
         package="laser_filters",
         executable="scan_to_scan_filter_chain",
+        name="laser_filter",
         parameters=[laser_filter_params],
         remappings=[
-            ("scan",          "/scan"),
+            ("scan", "/scan"),
             ("scan_filtered", "/scan_filtered"),
         ],
+    )
+
+    ekf_params = os.path.join(
+        get_package_share_directory(package_name), "config", "ekf_sim.yaml"
+    )
+    ekf_node = Node(
+        package="robot_localization",
+        executable="ekf_node",
+        name="ekf_filter_node",
+        parameters=[ekf_params],
     )
 
     # Launch them all!
@@ -128,6 +139,7 @@ def generate_launch_description():
             diff_drive_spawner,
             joint_broad_spawner,
             twist_mux,
-            laser_filter,
+            ekf_node,
+            # laser_filter,
         ]
     )

@@ -1,16 +1,3 @@
-# ============================================================
-# nav2_params.yaml
-# 基于官方 Humble 源文件修改
-# 机器人：my_bot 差速机器人 长12.3cm × 宽20.2cm（含车轮）/ 2.5kg
-# 底盘 box: 0.123×0.13×0.0958m，底盘中心偏 x=-0.0275，轮外缘 y=±0.101m
-# 修改标注：# [改] 表示修改项，# [官方] 表示保留原值供对比
-# ============================================================
-
-# 注意：使用 slam_toolbox 定位，不使用 AMCL
-# 如需 AMCL，取消注释并参考官方默认值
-# amcl:
-#   ros__parameters: ...
-
 bt_navigator:
   ros__parameters:
     use_sim_time: False
@@ -20,7 +7,10 @@ bt_navigator:
     bt_loop_duration: 10
     default_server_timeout: 20
     wait_for_service_timeout: 1000
-    # 保留官方完整插件列表，确保行为树 XML 正常加载
+    # 'default_nav_through_poses_bt_xml' and 'default_nav_to_pose_bt_xml' are use defaults:
+    # nav2_bt_navigator/navigate_to_pose_w_replanning_and_recovery.xml
+    # nav2_bt_navigator/navigate_through_poses_w_replanning_and_recovery.xml
+    # They can be set here or via a RewrittenYaml remap from a parent launch file to Nav2.
     plugin_lib_names:
       - nav2_compute_path_to_pose_action_bt_node
       - nav2_compute_path_through_poses_action_bt_node
@@ -78,138 +68,98 @@ bt_navigator_navigate_to_pose_rclcpp_node:
   ros__parameters:
     use_sim_time: False
 
-# ============================================================
-# Controller Server
-# [改] 官方默认 DWB → 替换为 MPPI Controller
-# ============================================================
 controller_server:
   ros__parameters:
     use_sim_time: False
-    controller_frequency: 20.0        # [官方] 20.0，保持不变，满足 model_dt=0.05 要求
+    controller_frequency: 20.0
     min_x_velocity_threshold: 0.001
-    min_y_velocity_threshold: 0.5
+    min_y_velocity_threshold: 0.001
     min_theta_velocity_threshold: 0.001
     failure_tolerance: 0.3
     progress_checker_plugin: "progress_checker"
-    goal_checker_plugins: ["general_goal_checker"]
+    goal_checker_plugins: ["general_goal_checker"] # "precise_goal_checker"
     controller_plugins: ["FollowPath"]
 
+    # Progress checker parameters
     progress_checker:
       plugin: "nav2_controller::SimpleProgressChecker"
-      required_movement_radius: 0.5
+      required_movement_radius: 0.3
       movement_time_allowance: 10.0
-
+    # Goal checker parameters
+    #precise_goal_checker:
+    #  plugin: "nav2_controller::SimpleGoalChecker"
+    #  xy_goal_tolerance: 0.25
+    #  yaw_goal_tolerance: 0.25
+    #  stateful: True
     general_goal_checker:
       stateful: True
       plugin: "nav2_controller::SimpleGoalChecker"
-      xy_goal_tolerance: 0.05         # [改] 官方 0.25 → 0.05，目标精度 5cm
-      yaw_goal_tolerance: 3.14159     # [改] 官方 0.25 → 3.14，偏航角不严格
-
-    # [改] 官方 DWBLocalPlanner → MPPIController
+      xy_goal_tolerance: 0.1
+      yaw_goal_tolerance: 3.14159
+    # DWB parameters
     FollowPath:
-      plugin: "nav2_mppi_controller::MPPIController"
-      time_steps: 56                  # [改] 30→56，预测时域 1.5s→2.8s，前瞻距离 0.3m→0.56m
-      model_dt: 0.05                  # 必须 = 1/controller_frequency = 0.05
-      batch_size: 2000                # [改] 800→2000，Nav2 官方推荐，Orange Pi 5 Pro 可承受
-      ax_max: 1.0
-      ax_min: -1.0
-      ay_max: 3.0
-      az_max: 1.5
-      vx_std: 0.2
-      vy_std: 0.0
-      wz_std: 0.4
-      vx_max: 0.2                     # [改] 官方 0.26 → 0.4，机器人最大线速度
-      vx_min: -0.2                    # [改] 官方无倒车 → 允许倒车 -0.3
-      vy_max: 0.0
-      wz_max: 0.6                     # [改] 对齐 hw_controllers.yaml angular.z.max_velocity=0.6，避免被控制器静默截断
-      iteration_count: 1
-      prune_distance: 1.7
-      transform_tolerance: 0.1
-      temperature: 0.3
-      gamma: 0.015
-      motion_model: "DiffDrive"
-      visualize: false                 # 调试时开启，部署时改为 false
-      regenerate_noises: false
-      TrajectoryVisualizer:
-        trajectory_step: 5
-        time_step: 3
-      critics:
-        ["ConstraintCritic", "CostCritic", "GoalCritic", "GoalAngleCritic",
-         "PathAlignCritic", "PathFollowCritic", "PathAngleCritic", "PreferForwardCritic"]
-      ConstraintCritic:
-        enabled: true
-        cost_power: 1
-        cost_weight: 4.0
-      CostCritic:
-        enabled: true
-        cost_power: 1
-        cost_weight: 3.81
-        critical_cost: 300.0
-        consider_footprint: true      # [改] 切换到 footprint 多边形后改为 true，碰撞检测更精确
-        collision_cost: 1000000.0
-        near_goal_distance: 1.0
-        trajectory_point_step: 2
-      GoalCritic:
-        enabled: true
-        cost_power: 1
-        cost_weight: 5.0
-        threshold_to_consider: 1.4
-      GoalAngleCritic:
-        enabled: true
-        cost_power: 1
-        cost_weight: 3.0
-        threshold_to_consider: 0.5
-      PathAlignCritic:
-        enabled: true
-        cost_power: 1
-        cost_weight: 14.0
-        max_path_occupancy_ratio: 0.05
-        trajectory_point_step: 4
-        threshold_to_consider: 0.5
-        offset_from_furthest: 10
-        use_path_orientations: false
-      PathFollowCritic:
-        enabled: true
-        cost_power: 1
-        cost_weight: 5.0
-        offset_from_furthest: 5
-        threshold_to_consider: 1.4
-      PathAngleCritic:
-        enabled: true
-        cost_power: 1
-        cost_weight: 2.0
-        offset_from_furthest: 4
-        threshold_to_consider: 0.5
-        max_angle_to_furthest: 1.0
-        mode: 0
-      PreferForwardCritic:
-        enabled: true
-        cost_power: 1
-        cost_weight: 5.0
-        threshold_to_consider: 0.5
+      plugin: "dwb_core::DWBLocalPlanner"
+      debug_trajectory_details: True
+      min_vel_x: -0.2
+      min_vel_y: 0.0
+      max_vel_x: 0.2
+      max_vel_y: 0.0
+      max_vel_theta: 0.6
+      min_speed_xy: 0.0
+      max_speed_xy: 0.2
+      min_speed_theta: 0.2
+      acc_lim_x: 0.8
+      acc_lim_y: 0.0
+      acc_lim_theta: 1.5
+      decel_lim_x: -0.8
+      decel_lim_y: 0.0
+      decel_lim_theta: -1.5
+      vx_samples: 20
+      vy_samples: 5
+      vtheta_samples: 20
+      sim_time: 1.7
+      linear_granularity: 0.05
+      angular_granularity: 0.025
+      transform_tolerance: 0.2
+      xy_goal_tolerance: 0.05
+      trans_stopped_velocity: 0.02
+      short_circuit_trajectory_evaluation: True
+      stateful: True
+      critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
+      BaseObstacle.scale: 20.0
+      PathAlign.scale: 32.0
+      PathAlign.forward_point_distance: 0.2
+      GoalAlign.scale: 24.0
+      GoalAlign.forward_point_distance: 0.2
+      PathDist.scale: 32.0
+      GoalDist.scale: 24.0
+      RotateToGoal.scale: 32.0
+      RotateToGoal.slowing_factor: 3.0
+      RotateToGoal.lookahead_time: -1.0
+      Oscillation.oscillation_reset_dist: 0.0
+      Oscillation.oscillation_reset_angle: 0.2
 
-# ============================================================
-# Local Costmap
-# ============================================================
 local_costmap:
   local_costmap:
     ros__parameters:
-      update_frequency: 10.0
-      publish_frequency: 2.0
+      update_frequency: 20.0
+      publish_frequency: 1.0
       global_frame: odom
-      robot_base_frame: base_link
+      robot_base_frame: base_footprint
       use_sim_time: False
       rolling_window: true
       width: 3
       height: 3
       resolution: 0.05
-      # [改] robot_radius→footprint：长12.4cm×宽20.5cm，外接圆0.12m→实际多边形，可通过更窄的走廊
+
+      # robot_radius: 0.22
       footprint: "[[0.035, 0.101], [0.035, -0.101], [-0.089, -0.101], [-0.089, 0.101]]"
+
       plugins: ["voxel_layer", "inflation_layer"]
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 3.0
-        inflation_radius: 0.15        # [改] 官方 0.55 → 0.30（robot_radius + 0.15 安全余量）
+        inflation_radius: 0.15
       voxel_layer:
         plugin: "nav2_costmap_2d::VoxelLayer"
         enabled: True
@@ -226,28 +176,27 @@ local_costmap:
           clearing: True
           marking: True
           data_type: "LaserScan"
-          raytrace_max_range: 4.0     # [改] 官方 3.0 → 4.0（max_laser_range=5.0，local略小）
+          raytrace_max_range: 3.0
           raytrace_min_range: 0.0
-          obstacle_max_range: 3.5     # [改] 官方 2.5 → 3.5（与 raytrace 留 0.5m 差值）
-          obstacle_min_range: 0.0
+          obstacle_max_range: 2.5
+          obstacle_min_range: 0.1
       static_layer:
         plugin: "nav2_costmap_2d::StaticLayer"
         map_subscribe_transient_local: True
       always_send_full_costmap: True
 
-# ============================================================
-# Global Costmap
-# ============================================================
 global_costmap:
   global_costmap:
     ros__parameters:
       update_frequency: 1.0
       publish_frequency: 1.0
       global_frame: map
-      robot_base_frame: base_link
+      robot_base_frame: base_footprint
       use_sim_time: False
-      # [改] robot_radius→footprint：与 local_costmap 保持一致
+
+      # robot_radius: 0.22
       footprint: "[[0.035, 0.101], [0.035, -0.101], [-0.089, -0.101], [-0.089, 0.101]]"
+
       resolution: 0.05
       track_unknown_space: true
       plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
@@ -261,25 +210,24 @@ global_costmap:
           clearing: True
           marking: True
           data_type: "LaserScan"
-          raytrace_max_range: 5.0     # [改] 官方 3.0 → 5.0（= max_laser_range）
+          raytrace_max_range: 4.0
           raytrace_min_range: 0.0
-          obstacle_max_range: 4.5     # [改] 官方 2.5 → 4.5（略小于 raytrace）
-          obstacle_min_range: 0.0
+          obstacle_max_range: 3.5
+          obstacle_min_range: 0.1
       static_layer:
         plugin: "nav2_costmap_2d::StaticLayer"
         map_subscribe_transient_local: True
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 3.0
-        inflation_radius: 0.15        # [改] 0.25→0.30，与 local_costmap 对齐，避免全局路径穿越局部高代价区
+        inflation_radius: 0.25
       always_send_full_costmap: True
 
-# ============================================================
-# Map Server & Saver（与官方一致，保持不变）
-# ============================================================
 map_server:
   ros__parameters:
     use_sim_time: False
+    # Overridden in launch by the "map" launch configuration or provided default value.
+    # To use in yaml, remove the default "map" value in the tb3_simulation_launch.py file & provide full path to map below.
     yaml_filename: ""
 
 map_saver:
@@ -290,36 +238,29 @@ map_saver:
     occupied_thresh_default: 0.65
     map_subscribe_transient_local: True
 
-# ============================================================
-# Planner Server
-# [改] 官方 NavfnPlanner → SmacPlanner2D
-# ============================================================
 planner_server:
   ros__parameters:
-    expected_planner_frequency: 20.0
+    expected_planner_frequency: 1.0
     use_sim_time: False
     planner_plugins: ["GridBased"]
     GridBased:
-      plugin: "nav2_smac_planner/SmacPlanner2D"  # [改] 官方 NavfnPlanner → SmacPlanner2D
-      tolerance: 0.05                             # [改] 官方 0.5 → 0.05（5cm 精度目标）
+      plugin: "nav2_smac_planner/SmacPlanner2D"
+      tolerance: 0.01
       downsample_costmap: false
       downsampling_factor: 1
       allow_unknown: true
-      max_iterations: 1000000                    # [改] 20000→1000000，恢复官方值，20000 在大地图会规划失败
+      max_iterations: 1000000
       max_on_approach_iterations: 1000
       max_planning_time: 5.0
-      cost_travel_multiplier: 2.0
-      use_final_approach_orientation: false       # 偏航角不严格
+      cost_travel_multiplier: 4.5
+      use_final_approach_orientation: true
       smoother:
         max_iterations: 1000
-        w_smooth: 0.3
+        w_smooth: 0.2
         w_data: 0.2
         tolerance: 1.0e-10
         do_refinement: true
 
-# ============================================================
-# Smoother Server（与官方一致）
-# ============================================================
 smoother_server:
   ros__parameters:
     use_sim_time: False
@@ -330,9 +271,6 @@ smoother_server:
       max_its: 1000
       do_refinement: True
 
-# ============================================================
-# Behavior Server（官方插件名已正确，保持 backup 不变）
-# ============================================================
 behavior_server:
   ros__parameters:
     costmap_topic: local_costmap/costmap_raw
@@ -350,24 +288,18 @@ behavior_server:
     assisted_teleop:
       plugin: "nav2_behaviors/AssistedTeleop"
     global_frame: odom
-    robot_base_frame: base_link
+    robot_base_frame: base_footprint
     transform_tolerance: 0.1
-    use_sim_time: false
+    use_sim_time: False
     simulate_ahead_time: 2.0
-    max_rotational_vel: 1.0
-    min_rotational_vel: 0.4
-    rotational_acc_lim: 3.2
+    max_rotational_vel: 0.6
+    min_rotational_vel: 0.2
+    rotational_acc_lim: 1.5
 
-# ============================================================
-# Robot State Publisher（官方保留项）
-# ============================================================
 robot_state_publisher:
   ros__parameters:
     use_sim_time: False
 
-# ============================================================
-# Waypoint Follower（与官方一致）
-# ============================================================
 waypoint_follower:
   ros__parameters:
     use_sim_time: False
@@ -379,19 +311,16 @@ waypoint_follower:
       enabled: True
       waypoint_pause_duration: 200
 
-# ============================================================
-# Velocity Smoother
-# ============================================================
 velocity_smoother:
   ros__parameters:
     use_sim_time: False
     smoothing_frequency: 20.0
-    scale_velocities: true
+    scale_velocities: False
     feedback: "OPEN_LOOP"
-    max_velocity: [0.2, 0.0, 0.6]    # [改] wz 1.0→0.6，对齐 hw_controllers angular.z.max_velocity
-    min_velocity: [-0.2, 0.0, -0.6]  # [改] wz -1.0→-0.6，对齐 hw_controllers
-    max_accel: [0.8, 0.0, 1.5]       # [改] vx 1.0→0.8，对齐 hw_controllers linear.x.max_acceleration
-    max_decel: [-0.8, 0.0, -1.5]     # [改] vx -1.0→-0.8，对齐 hw_controllers
+    max_velocity: [0.2, 0.0, 0.6]
+    min_velocity: [-0.2, 0.0, -0.6]
+    max_accel: [0.8, 0.0, 1.5]
+    max_decel: [-0.8, 0.0, -1.5]
     odom_topic: "odom"
     odom_duration: 0.1
     deadband_velocity: [0.0, 0.0, 0.0]

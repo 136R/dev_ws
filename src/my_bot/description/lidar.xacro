@@ -5,7 +5,8 @@
     <joint name="laser_joint" type="fixed">
         <parent link="base_link" />
         <child link="laser_frame" />
-        <origin xyz="$(arg lidar_x) $(arg lidar_y) $(arg lidar_z)" rpy="$(arg lidar_roll) $(arg lidar_pitch) $(arg lidar_yaw)" />
+        <origin xyz="$(arg lidar_x) $(arg lidar_y) $(arg lidar_z)"
+            rpy="$(arg lidar_roll) $(arg lidar_pitch) $(arg lidar_yaw)" />
     </joint>
 
     <link name="laser_frame">
@@ -43,8 +44,8 @@
                     </horizontal>
                 </scan>
                 <range>
-                    <min>0.05</min>
-                    <max>16.0</max>
+                    <min>0.1</min>
+                    <max>4.0</max>
                 </range>
             </lidar>
         </sensor>
