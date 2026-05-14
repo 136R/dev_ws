@@ -46,10 +46,10 @@ ros2 run teleop_twist_keyboard teleop_twist_keyboard \
 ros2 launch my_bot launch_sim.launch.py
 # 2 slam
 ros2 launch my_bot_slam slam.launch.py use_sim_time:=true mode:=localization
-# 3 nav2
-ros2 launch my_bot_nav nav.launch.py use_sim_time:=true
-# 4 rviz2
+# 3 rviz2
 ros2 run rviz2 rviz2 --ros-args -p use_sim_time:=true
+# 4 nav2
+ros2 launch my_bot_nav nav.launch.py use_sim_time:=true
 # 5 键盘控制
 ros2 run teleop_twist_keyboard teleop_twist_keyboard \
   --ros-args -r cmd_vel:=/cmd_vel_keyboard \
@@ -57,9 +57,24 @@ ros2 run teleop_twist_keyboard teleop_twist_keyboard \
 # 6 里程计
 ./src/my_bot/python/monitor.py
 
+# 调试全局规划
+ros2 action send_goal /compute_path_to_pose nav2_msgs/action/ComputePathToPose \
+  "{goal: {header: {frame_id: 'map'}, pose: {position: {x: 1.4, y: -0.2, z: 0.0}, orientation: {w: 1.0}}}}"
+
+ros2 action send_goal /compute_path_to_pose nav2_msgs/action/ComputePathToPose   "{goal: {header: {frame_id: 'map'}, pose: {position: {x: 1.5, y: -0.8, z: 0.0}, orientation: {w: 1.0}}}}"
+
+ros2 action send_goal /compute_path_to_pose nav2_msgs/action/ComputePathToPose   "{goal: {header: {frame_id: 'map'}, pose: {position: {x: 0.8, y: 1.5, z: 0.0}, orientation: {w: 1.0}}}}"
+
+# 循环发布，每秒执行一次
+while true; do
+  ros2 action send_goal /compute_path_to_pose nav2_msgs/action/ComputePathToPose \
+    "{goal: {header: {frame_id: 'map'}, pose: {position: {x: 1.5, y: -0.8, z: 0.0}, orientation: {w: 1.0}}}}"
+  sleep 1
+done
+
 # nav2 发布目标
 ros2 topic pub --once /goal_pose geometry_msgs/msg/PoseStamped \
-  "{header: {frame_id: 'map'}, pose: {position: {x: 1.0, y: 0.0, z: 0.0}, orientation: {w: 1.0}}}"
+  "{header: {frame_id: 'map'}, pose: {position: {x: 1.4, y: -0.2, z: 0.0}, orientation: {w: 1.0}}}"
 
 # nav2 发布目标 - action(带反馈)
 ros2 action send_goal /navigate_to_pose nav2_msgs/action/NavigateToPose \

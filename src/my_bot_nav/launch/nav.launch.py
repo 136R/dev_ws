@@ -21,7 +21,7 @@ def _include_nav(context, pkg_nav):
         params_file = os.path.join(
             pkg_nav,
             "config",
-            "nav2_params_mppi.yaml" if use_sim else "nav2_params_hw.yaml",
+            "nav2_params_rpp.yaml" if use_sim else "nav2_params_hw.yaml",
         )
 
     return [

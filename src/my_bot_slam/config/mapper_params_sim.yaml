@@ -17,7 +17,7 @@ slam_toolbox:
     use_map_saver: true
     mode: localization   
 
-    map_file_name: /home/bingda/dev_ws/src/my_bot_slam/config/maps/sim/serialize_map/my_map
+    map_file_name: /home/bingda/dev_ws/src/my_bot_slam/config/maps/sim/serialize_map/obstacle
     map_start_pose: [0.0, 0.0, 0.0]
     # map_start_at_dock: true
 
