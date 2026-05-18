@@ -15,6 +15,7 @@ slam_toolbox:
     base_frame: base_footprint
     scan_topic: /scan
     use_map_saver: true
+    # mode: mapping
     mode: localization   
 
     map_file_name: /home/bingda/dev_ws/src/my_bot_slam/config/maps/sim/serialize_map/obstacle
@@ -68,5 +69,5 @@ slam_toolbox:
     minimum_angle_penalty: 0.9
     minimum_distance_penalty: 0.5
     use_response_expansion: true
-    min_pass_through: 2
-    occupancy_threshold: 0.5
+    min_pass_through: 1
+    occupancy_threshold: 0.1

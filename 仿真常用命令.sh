@@ -45,6 +45,7 @@ ros2 run teleop_twist_keyboard teleop_twist_keyboard \
 # 1 启动gazebo
 ros2 launch my_bot launch_sim.launch.py
 # 2 slam
+ros2 launch my_bot_slam slam.launch.py use_sim_time:=true mode:=mapping
 ros2 launch my_bot_slam slam.launch.py use_sim_time:=true mode:=localization
 # 3 rviz2
 ros2 run rviz2 rviz2 --ros-args -p use_sim_time:=true
@@ -64,6 +65,8 @@ ros2 action send_goal /compute_path_to_pose nav2_msgs/action/ComputePathToPose \
 ros2 action send_goal /compute_path_to_pose nav2_msgs/action/ComputePathToPose   "{goal: {header: {frame_id: 'map'}, pose: {position: {x: 1.5, y: -0.8, z: 0.0}, orientation: {w: 1.0}}}}"
 
 ros2 action send_goal /compute_path_to_pose nav2_msgs/action/ComputePathToPose   "{goal: {header: {frame_id: 'map'}, pose: {position: {x: 0.8, y: 1.5, z: 0.0}, orientation: {w: 1.0}}}}"
+
+ros2 action send_goal /compute_path_to_pose nav2_msgs/action/ComputePathToPose   "{goal: {header: {frame_id: 'map'}, pose: {position: {x: -1.5, y: 1.5, z: 0.0}, orientation: {w: 1.0}}}}"
 
 # 循环发布，每秒执行一次
 while true; do

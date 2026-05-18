@@ -48,7 +48,8 @@ ros2 launch my_bot_slam slam.launch.py use_sim_time:=true mode:=localization
 ## 保存地图
 
 ```bash
-ros2 service call /slam_toolbox/save_map \
-  slam_toolbox/srv/SaveMap \
-  "{name: {data: '/home/orangepi/maps/my_real_map'}}"
+# 保存序列化地图 用于 localization 模式定位
+ros2 service call /slam_toolbox/serialize_map \
+slam_toolbox/srv/SerializePoseGraph \
+"{filename: '/home/orangepi/dev_ws/src/my_bot_slam/config/serialize_map/my_map'}"
 ```
