@@ -45,7 +45,7 @@ ros2 run teleop_twist_keyboard teleop_twist_keyboard \
 # 1 启动gazebo
 ros2 launch my_bot launch_sim.launch.py
 # 2 slam
-ros2 launch my_bot_slam slam.launch.py use_sim_time:=true mode:=mapping
+ros2 launch my_bot_slam slam.launch.py use_sim_time:=true
 ros2 launch my_bot_slam slam.launch.py use_sim_time:=true mode:=localization
 # 3 rviz2
 ros2 run rviz2 rviz2 --ros-args -p use_sim_time:=true
@@ -57,6 +57,14 @@ ros2 run teleop_twist_keyboard teleop_twist_keyboard \
   -p speed:=0.2 -p turn:=0.6
 # 6 里程计
 ./src/my_bot/python/monitor.py
+
+# 网页 Demo 模式（无需 ROS，立刻看到界面）
+python3 -m http.server 8080 --directory install/ros2_webui/share/ros2_webui/static
+# 网页 rosbridge 模式（需要 ROS）
+# 终端1：单独起 rosbridge
+ros2 launch rosbridge_server rosbridge_websocket_launch.xml
+# 终端2：静态服务
+python3 -m http.server 8080 --directory ~/dev_ws/install/ros2_webui/share/ros2_webui/static
 
 # 调试全局规划
 ros2 action send_goal /compute_path_to_pose nav2_msgs/action/ComputePathToPose \

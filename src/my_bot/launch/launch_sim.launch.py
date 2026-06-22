@@ -140,6 +140,6 @@ def generate_launch_description():
             joint_broad_spawner,
             twist_mux,
             ekf_node,
-            # laser_filter,
+            laser_filter,
         ]
     )
