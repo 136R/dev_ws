@@ -1,6 +1,6 @@
 # SLAM Toolbox 建图调参指南
 
-> 配置文件：`config/mapper_params_hw_mapping.yaml`
+> 配置文件：`config/mapper_params_hw.yaml`（`mode:=mapping` 时由 `slam.launch.py` 启动 `async_slam_toolbox_node`）
 > 数据流：`/scan_filtered` → **slam_toolbox** → `/map` + TF `map→odom`
 > 参考来源：[slam_toolbox GitHub](https://github.com/SteveMacenski/slam_toolbox)、源码 `karto_sdk/src/Mapper.cpp`、Steve Macenski ROSCon 2019 演讲、社区 Issue 讨论
 
@@ -287,7 +287,7 @@ ros2 service call /slam_toolbox/save_map slam_toolbox/srv/SaveMap \
 # 保存序列化地图 用于 localization 模式定位
 ros2 service call /slam_toolbox/serialize_map \
 slam_toolbox/srv/SerializePoseGraph \
-"{filename: '/home/orangepi/dev_ws/src/my_bot_slam/config/serialize_map/my_map'}"
+"{filename: '/home/bingda/dev_ws/src/my_bot_slam/config/maps/hw/serialize_map/my_map'}"
 ```
 
 ---

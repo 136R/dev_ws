@@ -25,54 +25,53 @@ def generate_launch_description():
     mode = LaunchConfiguration('mode')
     use_sim_time = LaunchConfiguration('use_sim_time')
 
-    use_sim = PythonExpression(["'", use_sim_time, "' == 'true'"])
-    is_hw_mapping = PythonExpression(
-        ["'", use_sim_time, "' == 'false' and '", mode, "' == 'mapping'"]
+    params_file = PythonExpression([
+        "'",
+        os.path.join(pkg_slam, 'config', 'mapper_params_sim.yaml'),
+        "' if '", use_sim_time, "' == 'true' else '",
+        os.path.join(pkg_slam, 'config', 'mapper_params_hw.yaml'),
+        "'",
+    ])
+    is_mapping = PythonExpression(
+        ["'", mode, "' == 'mapping'"]
     )
-    is_hw_localization = PythonExpression(
-        ["'", use_sim_time, "' == 'false' and '", mode, "' == 'localization'"]
+    is_localization = PythonExpression(
+        ["'", mode, "' == 'localization'"]
     )
 
-    sim_slam_node = Node(
-        condition=IfCondition(use_sim),
+    mapping_node = Node(
+        condition=IfCondition(is_mapping),
         package='slam_toolbox',
         executable='async_slam_toolbox_node',
         name='slam_toolbox',
         output='screen',
         parameters=[
-            os.path.join(pkg_slam, 'config', 'mapper_params_sim.yaml'),
-            {'use_sim_time': use_sim_time},
+            params_file,
+            {
+                'mode': mode,
+                'use_sim_time': use_sim_time,
+            },
         ],
     )
 
-    hw_mapping_node = Node(
-        condition=IfCondition(is_hw_mapping),
+    localization_node = Node(
+        condition=IfCondition(is_localization),
         package='slam_toolbox',
-        executable='async_slam_toolbox_node',
+        executable='localization_slam_toolbox_node',
         name='slam_toolbox',
         output='screen',
         parameters=[
-            os.path.join(pkg_slam, 'config', 'mapper_params_hw_mapping.yaml'),
-            {'use_sim_time': use_sim_time},
-        ],
-    )
-
-    hw_localization_node = Node(
-        condition=IfCondition(is_hw_localization),
-        package='slam_toolbox',
-        executable='async_slam_toolbox_node',
-        name='slam_toolbox',
-        output='screen',
-        parameters=[
-            os.path.join(pkg_slam, 'config', 'mapper_params_hw.yaml'),
-            {'use_sim_time': use_sim_time},
+            params_file,
+            {
+                'mode': mode,
+                'use_sim_time': use_sim_time,
+            },
         ],
     )
 
     return LaunchDescription([
         mode_arg,
         use_sim_time_arg,
-        sim_slam_node,
-        hw_mapping_node,
-        hw_localization_node,
+        mapping_node,
+        localization_node,
     ])

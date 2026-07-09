@@ -7,10 +7,10 @@ ros2 topic pub /set_pose geometry_msgs/msg/PoseWithCovarianceStamped "{header: {
 
 
 # slam_toolbox 建图
-ros2 launch slam_toolbox online_async_launch.py slam_params_file:=/home/orangepi/dev_ws/src/my_bot_hw/config/mapper_params_hw_mapping.yaml
+ros2 launch my_bot_slam slam.launch.py mode:=mapping
 
 # slam_toolbox 加载已知地图定位
-ros2 launch slam_toolbox localization_launch.py slam_params_file:=/home/orangepi/dev_ws/src/my_bot_hw/config/mapper_params_hw.yaml
+ros2 launch my_bot_slam slam.launch.py mode:=localization
 
 # nav2
 ros2 launch my_bot navigation_launch.py params_file:=/home/orangepi/dev_ws/src/my_bot_hw/config/nav2_params_hw.yaml

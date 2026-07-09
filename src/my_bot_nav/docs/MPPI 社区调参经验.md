@@ -1,6 +1,6 @@
 # MPPI 社区调参经验（Nav2 / ROS2 Humble）
 
-> 配置文件：`config/nav2_params_mppi.yaml`
+> 配置文件：`config/legacy/nav2_params_mppi.yaml`
 > 适用：差速车、室内 2D、多房间 10–30 m、含动态行人
 > 整理来源：Nav2 官方 README + Notes to Users、Steve Macenski ROSCon 2023 演讲、navigation2 GitHub Issues、Open Robotics Discourse
 

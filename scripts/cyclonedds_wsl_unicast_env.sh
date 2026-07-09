@@ -15,13 +15,18 @@
 # Or:
 #   source ~/dev_ws/scripts/cyclonedds_wsl_unicast_env.sh 192.168.16.210
 #
-set -euo pipefail
+# Keep this file source-safe for ~/.bashrc. Do not enable strict shell options
+# here, because they would leak into the user's interactive shell.
+_cyclonedds_wsl_done() {
+  local rc="$1"
+  return "${rc}" 2>/dev/null || exit "${rc}"
+}
 
 robot_ip="${1:-${ROBOT_IP:-}}"
 if [[ -z "${robot_ip}" ]]; then
   echo "cyclonedds_wsl_unicast_env.sh: missing robot ip"
   echo "  set ROBOT_IP or pass it as the first argument"
-  return 2 2>/dev/null || exit 2
+  _cyclonedds_wsl_done 2
 fi
 
 src_ip="$(
@@ -32,7 +37,7 @@ src_ip="$(
 if [[ -z "${src_ip}" ]]; then
   echo "cyclonedds_wsl_unicast_env.sh: cannot determine source IP to reach ${robot_ip}"
   echo "  check that the robot IP is reachable from WSL and routing is set up"
-  return 3 2>/dev/null || exit 3
+  _cyclonedds_wsl_done 3
 fi
 
 # Configure CycloneDDS via an inline XML string (no external file dependency).
@@ -60,3 +65,5 @@ export CYCLONEDDS_URI="<?xml version=\"1.0\" encoding=\"UTF-8\"?>
 echo "CycloneDDS configured for unicast discovery:"
 echo "  src_ip=${src_ip}"
 echo "  peer=${robot_ip}"
+
+unset -f _cyclonedds_wsl_done

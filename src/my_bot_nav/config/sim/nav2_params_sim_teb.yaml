@@ -1,5 +1,16 @@
 # 全局: ThetaStar
-# 局部: RPP
+# 局部: TEB（Timed Elastic Band）—— 仿真版，针对本车(差速、车宽24cm)预调
+#
+# 基座沿用 nav2_params_rpp.yaml 的仿真设置(use_sim_time / /scan / 仿真 footprint / keepout / ThetaStar)
+# 只把 controller_server 的局部控制器换成 TEB。
+#
+# ★★ 窄通道三个关键参数(调 TEB 先盯这三个，其它先别动)：
+#    1) min_obstacle_dist  —— 机器人离障碍的最小距离。35cm通道单边只剩~5cm，这个必须 ≤ 0.05，否则 TEB 找不到解
+#    2) footprint_model    —— 用 polygon 精确足迹，窄缝里别用粗略的圆
+#    3) weight_viapoint + global_plan_viapoint_sep —— 让 TEB 贴着全局路径中线走
+#
+# 安装: sudo apt install ros-humble-teb-local-planner
+# 官方参数说明: https://github.com/rst-tu-dortmund/teb_local_planner
 
 bt_navigator:
   ros__parameters:
@@ -9,10 +20,7 @@ bt_navigator:
     odom_topic: /odometry/filtered
     bt_loop_duration: 10
     default_server_timeout: 20
-
-    # 全局规划器更新频率 与 行为恢复
-    default_nav_to_pose_bt_xml: /home/bingda/dev_ws/src/my_bot_nav/config/bt/navigate_to_pose_custom.xml
-
+    default_nav_to_pose_bt_xml: /home/bingda/dev_ws/src/my_bot_nav/config/common/bt/navigate_to_pose_custom.xml
     wait_for_service_timeout: 1000
     plugin_lib_names:
       - nav2_compute_path_to_pose_action_bt_node
@@ -66,7 +74,6 @@ bt_navigator:
 bt_navigator_navigate_through_poses_rclcpp_node:
   ros__parameters:
     use_sim_time: True
-
 bt_navigator_navigate_to_pose_rclcpp_node:
   ros__parameters:
     use_sim_time: True
@@ -74,7 +81,7 @@ bt_navigator_navigate_to_pose_rclcpp_node:
 controller_server:
   ros__parameters:
     use_sim_time: True
-    controller_frequency: 20.0
+    controller_frequency: 10.0          # TEB 比 MPPI 重，10Hz 是常用值(5~15)；实测掉帧就降到 8
     min_x_velocity_threshold: 0.001
     min_y_velocity_threshold: 0.001
     min_theta_velocity_threshold: 0.001
@@ -86,66 +93,105 @@ controller_server:
 
     progress_checker:
       plugin: "nav2_controller::SimpleProgressChecker"
-      required_movement_radius: 0.3
+      required_movement_radius: 0.1
       movement_time_allowance: 10.0
     general_goal_checker:
       stateful: True
       plugin: "nav2_controller::SimpleGoalChecker"
-      xy_goal_tolerance: 0.05        # 从 0.05 放宽到 0.10，RPP 也能 ±5cm 但留点余地更稳
-      yaw_goal_tolerance: 6.28       # 沿用你原来的"不约束 yaw"
+      xy_goal_tolerance: 0.05
+      yaw_goal_tolerance: 6.28           # 你不在乎最终朝向 → 放开 yaw
 
-    # ───────────────────────────── RPP 控制器 ─────────────────────────────
+    # ───────────────────────────── TEB 控制器 ─────────────────────────────
     FollowPath:
-      plugin: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
+      plugin: "teb_local_planner::TebLocalPlannerROS"
 
-      # —— 速度/加速度（对齐你的 velocity_smoother：max 0.2 m/s, accel 0.8）——
-      desired_linear_vel: 0.2
-      min_approach_linear_velocity: 0.05      # 接近目标时的最低速
-      approach_velocity_scaling_dist: 0.4     # 距目标 0.4m 开始线性减速
-      max_allowed_time_to_collision_up_to_carrot: 1.0   # 1s 内会撞就停
+      # —— 轨迹离散 ——
+      teb_autosize: 1.0
+      dt_ref: 0.3
+      dt_hysteresis: 0.1
+      max_samples: 500
+      global_plan_overwrite_orientation: True
+      allow_init_with_backwards_motion: False
+      max_global_plan_lookahead_dist: 1.5      # ≈ 局部 costmap 半径
+      global_plan_prune_distance: 1.0
+      exact_arc_length: False
+      feasibility_check_no_poses: 5
+      publish_feedback: False
 
-      # —— Lookahead（前瞻点）——
-      # 室内 0.2 m/s 低速场景下，lookahead 0.4~0.6m 比较合适
-      use_velocity_scaled_lookahead_dist: true
-      lookahead_dist: 0.3            # 固定 lookahead 兜底
-      min_lookahead_dist: 0.15        # 慢速时也不能太短
-      max_lookahead_dist: 0.4        # 高速时也不能太长
-      lookahead_time: 1.0            # vel_scaled 模式下 = vel * 1.5s
+      # —— ★ 贴中线(窄通道关键)：via-point 越密、权重越大，越贴全局路径中线 ——
+      global_plan_viapoint_sep: 0.1            # 每 0.1m 取一个 via-point
+      via_points_ordered: False
 
-      # —— 速度调控（regulation）——
-      # 这是 RPP 的招牌：在急转弯/接近障碍时自动减速
-      use_regulated_linear_velocity_scaling: true
-      regulated_linear_scaling_min_radius: 0.45   # 转弯半径 < 0.45m 开始减速
-      regulated_linear_scaling_min_speed: 0.05   # 减速下限
+      # —— 机器人运动学(对齐你的底盘 / velocity_smoother)——
+      max_vel_x: 0.2
+      max_vel_x_backwards: 0.1
+      max_vel_y: 0.0                            # 差速车无横移
+      max_vel_theta: 0.6
+      acc_lim_x: 0.8
+      acc_lim_theta: 1.5
+      min_turning_radius: 0.0                   # 差速车可原地转
 
-      use_cost_regulated_linear_velocity_scaling: true   # 靠近障碍也减速
-      cost_scaling_dist: 0.3         # 距障碍 0.3m 内开始减速
-      cost_scaling_gain: 1.0
-      inflation_cost_scaling_factor: 6.0    # 必须等于 local_costmap inflation_layer 的 cost_scaling_factor
+      # —— ★ footprint：窄缝里必须用精确多边形(别用圆) ——
+      footprint_model:
+        type: "polygon"
+        vertices: "[[0.05, 0.121], [0.05, -0.121], [-0.104, -0.121], [-0.104, 0.121]]"
 
-      # —— 差速车专项：原地转向对齐路径 ——
-      # 这是 RPP 替代 RotationShim 的内置功能，差速车强烈建议开启
-      use_rotate_to_heading: true
-      rotate_to_heading_min_angle: 0.349        # 偏差 > 20° 时先原地转
-      rotate_to_heading_angular_vel: 0.6        # 原地转的角速度
-      max_angular_accel: 1.5                    # 对齐 velocity_smoother 的 1.5
+      # —— 目标容差 ——
+      free_goal_vel: False
+      complete_global_plan: True
 
-      # —— 碰撞检测（前瞻撞墙就停）——
-      use_collision_detection: false
+      # —— ★★ 障碍(窄通道最关键)——
+      min_obstacle_dist: 0.05                   # ★★ 机器人离障碍最小距离。35cm通道单边仅~5cm → 必须 ≤0.05，否则无解。40cm可设0.07
+      inflation_dist: 0.10                      # 软缓冲，需 > min_obstacle_dist
+      include_costmap_obstacles: True
+      costmap_obstacles_behind_robot_dist: 1.0
+      obstacle_poses_affected: 15
+      dynamic_obstacle_inflation_dist: 0.2
+      include_dynamic_obstacles: True           # ★ 把移动障碍当"带速度预测"处理(你的人/宠物场景)
+      legacy_obstacle_association: False
 
-      # —— 反向行驶（差速车默认禁，配合 use_rotate_to_heading）——
-      allow_reversing: false
+      # —— 优化 ——
+      no_inner_iterations: 5
+      no_outer_iterations: 4
+      optimization_activate: True
+      optimization_verbose: False
+      penalty_epsilon: 0.1
+      obstacle_cost_exponent: 4.0
+      weight_max_vel_x: 2.0
+      weight_max_vel_theta: 1.0
+      weight_acc_lim_x: 1.0
+      weight_acc_lim_theta: 1.0
+      weight_kinematics_nh: 1000.0
+      weight_kinematics_forward_drive: 10.0     # ★ 抑制倒车(你不想倒车入库)；窄缝若需倒车再降
+      weight_kinematics_turning_radius: 0.0
+      weight_optimaltime: 1.0                   # 越大越激进/越快；窄缝怕震荡先留 1.0
+      weight_shortest_path: 0.0
+      weight_obstacle: 100.0
+      weight_inflation: 0.2
+      weight_dynamic_obstacle: 10.0
+      weight_dynamic_obstacle_inflation: 0.2
+      weight_viapoint: 5.0                      # ★ 贴中线的力(窄通道关键)；走歪就加大，绕障不够就减小
+      weight_adapt_factor: 2.0
 
-      # —— 其他 ——
-      transform_tolerance: 0.1
-      max_robot_pose_search_dist: 10.0
-      use_interpolation: true        # 路径点稀疏时插值，跟踪更平滑
+      # —— 多拓扑并行规划(TEB 招牌：同时探多条绕行路线，避障更强；费算力) ——
+      enable_homotopy_class_planning: True
+      enable_multithreading: True
+      max_number_classes: 4
+      selection_cost_hysteresis: 1.0
+      selection_prefer_initial_plan: 0.95
+      selection_obst_cost_scale: 1.0
+      roadmap_graph_no_samples: 15
+      roadmap_graph_area_width: 5.0
+      roadmap_graph_area_length_scale: 1.0
+      h_signature_prescaler: 0.5
+      h_signature_threshold: 0.1
+      visualize_hc_graph: False
 
 local_costmap:
   local_costmap:
     ros__parameters:
-      update_frequency: 20.0
-      publish_frequency: 1.0
+      update_frequency: 10.0
+      publish_frequency: 5.0
       global_frame: odom
       robot_base_frame: base_footprint
       use_sim_time: True
@@ -153,10 +199,7 @@ local_costmap:
       width: 3
       height: 3
       resolution: 0.05
-
-      # footprint: "[[0.035, 0.101], [0.035, -0.101], [-0.089, -0.101], [-0.089, 0.101]]"
       footprint: "[[0.05, 0.121], [0.05, -0.121], [-0.104, -0.121], [-0.104, 0.121]]"
-
       plugins: ["voxel_layer", "keepout_filter", "inflation_layer"]
       keepout_filter:
         plugin: "nav2_costmap_2d::KeepoutFilter"
@@ -164,8 +207,8 @@ local_costmap:
         filter_info_topic: "/costmap_filter_info"
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 6.0
-        inflation_radius: 0.17
+        cost_scaling_factor: 3.0
+        inflation_radius: 0.12        # TEB 主要靠 footprint+min_obstacle_dist 判障；inflation 取小避免填满窄通道
       voxel_layer:
         plugin: "nav2_costmap_2d::VoxelLayer"
         enabled: True
@@ -199,10 +242,7 @@ global_costmap:
       global_frame: map
       robot_base_frame: base_footprint
       use_sim_time: True
-
-      # footprint: "[[0.055, 0.131], [0.055, -0.131], [-0.109, -0.131], [-0.109, 0.131]]"
       robot_radius: 0.1
-
       resolution: 0.05
       track_unknown_space: true
       plugins: ["static_layer", "obstacle_layer", "keepout_filter", "inflation_layer"]
@@ -229,15 +269,14 @@ global_costmap:
         filter_info_topic: "/costmap_filter_info"
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 6.0
+        cost_scaling_factor: 3.0
         inflation_radius: 0.2
       always_send_full_costmap: True
 
-# Keepout 禁行区滤波信息服务（掩码由 keepout_mask_diff 节点直接发布）
 costmap_filter_info_server:
   ros__parameters:
     use_sim_time: True
-    type: 0                                  # 0 = keepout/preferred-lane 滤波
+    type: 0
     filter_info_topic: "/costmap_filter_info"
     mask_topic: "/keepout_filter_mask"
     base: 0.0
@@ -263,10 +302,10 @@ planner_server:
     planner_plugins: ["GridBased"]
     GridBased:
       plugin: "nav2_theta_star_planner/ThetaStarPlanner"
-      how_many_corners: 8       # 邻接数，8 是默认
-      w_euc_cost: 1.5           # 欧式距离权重
-      w_traversal_cost: 2.0     # 通过代价（cost）权重——越大越远离障碍
-      w_heuristic_cost: 1.0     # A* 启发权重
+      how_many_corners: 8
+      w_euc_cost: 1.5
+      w_traversal_cost: 2.0
+      w_heuristic_cost: 1.0
       use_final_approach_orientation: false
 
 smoother_server:
@@ -333,58 +372,3 @@ velocity_smoother:
     odom_duration: 0.1
     deadband_velocity: [0.0, 0.0, 0.0]
     velocity_timeout: 1.0
-
-# Collision Monitor
-# collision_monitor:
-#   ros__parameters:
-#     use_sim_time: True
-#     base_frame_id: "base_footprint"
-#     odom_frame_id: "odom"
-
-#     # —— 输入：从 velocity_smoother 接收 cmd_vel ——
-#     cmd_vel_in_topic: "cmd_vel_smoothed"
-    
-#     # —— 输出：最终下发给 twist_mux 的 Nav2 cmd_vel ——
-#     cmd_vel_out_topic: "cmd_vel_nav"
-    
-#     # —— 状态发布 ——
-#     state_topic: "collision_monitor_state"
-
-#     # —— TF/超时配置 ——
-#     transform_tolerance: 0.2
-#     source_timeout: 1.0           # 1秒内必须收到新的 scan 数据，否则视为故障
-#     base_shift_correction: True   # 用 odom 补偿 scan 数据的延迟（推荐 true）
-#     stop_pub_timeout: 2.0         # 没收到 cmd_vel 输入超过 2 秒，发停车指令
-    
-#     # —— 多边形区域定义 ——
-#     polygons: ["EmergencyStop", "ApproachZone"]
-    
-#     # ── 紧急区：贴身，min_points 高，只挡真正贴脸的情况 ──
-#     EmergencyStop:
-#       type: "polygon"
-#       points: [0.01, 0.01, 0.01, -0.01, -0.01, -0.01, -0.01, 0.01]
-#       # points: [0.035, 0.101, 0.035, -0.101, -0.089, -0.101, -0.089, 0.101]
-#       action_type: "stop"
-#       max_points: 60             # Humble 参数名：达到该点数阈值后触发
-#       visualize: True
-#       polygon_pub_topic: "emergency_zone"
-#       enabled: True
-    
-#     # ── 接近减速区：用 approach 动态减速 ──
-#     ApproachZone:
-#       type: "polygon"
-#       points: [0.5, 0.30, 0.5, -0.30, -0.30, -0.30, -0.30, 0.30]
-#       action_type: "approach"
-#       time_before_collision: 1.5
-#       simulation_time_step: 0.1
-#       max_points: 15
-#       visualize: True
-#       polygon_pub_topic: "approach_zone"
-#       enabled: True
-    
-#     # —— 数据源：lidar ——
-#     observation_sources: ["scan"]
-#     scan:
-#       type: "scan"
-#       topic: "/scan"
-#       enabled: True

@@ -28,7 +28,7 @@ def generate_launch_description():
     use_sim_time_arg = DeclareLaunchArgument('use_sim_time', default_value='true')
     params_file_arg = DeclareLaunchArgument(
         'params_file',
-        default_value=os.path.join(pkg_nav, 'config', 'nav2_params_rpp.yaml'),
+        default_value=os.path.join(pkg_nav, 'config', 'sim', 'nav2_params_rpp.yaml'),
         description='Nav2 参数文件（含 costmap_filter_info_server 配置）')
 
     diff_node = Node(

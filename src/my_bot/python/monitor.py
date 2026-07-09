@@ -20,7 +20,7 @@ class DataMonitor(Node):
     GZ_WORLD_POSES_TOPIC = '/world_poses'
     ODOM_TOPIC = '/odom'
     EKF_TOPIC = '/odometry/filtered'
-    CMD_VEL_NAV2_TOPIC = '/cmd_vel_nav2'
+    CMD_VEL_NAV2_TOPIC = '/cmd_vel_nav'
 
     def __init__(self):
         super().__init__('data_monitor')

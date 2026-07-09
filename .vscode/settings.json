@@ -8,7 +8,7 @@
         "/opt/ros/humble/lib/python3.10/site-packages",
         "/opt/ros/humble/local/lib/python3.10/dist-packages"
     ],
-    "cmake.sourceDirectory": "/home/bingda/dev_ws/src/articubot_one",
+    "cmake.sourceDirectory": "/home/bingda/dev_ws/src/gz_ros2_control/gz_ros2_control_tests",
     "commentTranslate.source": "Google",
     "ros.distro": "humble"
 }

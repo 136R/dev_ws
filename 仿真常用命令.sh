@@ -11,8 +11,6 @@ colcon build --packages-select my_bot # C++ 编译单个功能包
 # 启动gazebo 并加载机器人与场地
 ros2 launch my_bot launch_sim.launch.py
 # slam_toolbox 建图
-ros2 launch slam_toolbox online_async_launch.py slam_params_file:=/home/bingda/dev_ws/src/my_bot/config/mapper_params_online_async.yaml use_sim_time:=true
-
 ros2 launch my_bot_slam slam.launch.py use_sim_time:=true mode:=mapping
 
 # rviz2
@@ -21,7 +19,7 @@ ros2 run rviz2 rviz2 --ros-args -p use_sim_time:=true
 ros2 run teleop_twist_keyboard teleop_twist_keyboard
 
 # slam_toolbox 加载已知地图定位
-ros2 launch slam_toolbox localization_launch.py slam_params_file:=/home/bingda/dev_ws/src/my_bot/config/mapper_params_online_async.yaml use_sim_time:=true
+ros2 launch my_bot_slam slam.launch.py use_sim_time:=true mode:=localization
 # nav2
 ros2 launch my_bot navigation_launch.py params_file:=/home/bingda/dev_ws/src/my_bot/config/nav2_params.yaml use_sim_time:=true
 
@@ -45,26 +43,31 @@ ros2 run teleop_twist_keyboard teleop_twist_keyboard \
 # 1 启动gazebo
 ros2 launch my_bot launch_sim.launch.py
 # 2 slam
-ros2 launch my_bot_slam slam.launch.py use_sim_time:=true
+ros2 launch my_bot_slam slam.launch.py use_sim_time:=true mode:=mapping
 ros2 launch my_bot_slam slam.launch.py use_sim_time:=true mode:=localization
 # 3 rviz2
 ros2 run rviz2 rviz2 --ros-args -p use_sim_time:=true
 # 4 nav2
 ros2 launch my_bot_nav nav.launch.py use_sim_time:=true
+# 障碍层
+ros2 launch my_bot_nav keepout.launch.py use_sim_time:=true
+
 # 5 键盘控制
 ros2 run teleop_twist_keyboard teleop_twist_keyboard \
   --ros-args -r cmd_vel:=/cmd_vel_keyboard \
   -p speed:=0.2 -p turn:=0.6
 # 6 里程计
 ./src/my_bot/python/monitor.py
+# 7.web
+cd ~/ros_flutter_gui && sh ./start.sh
+cd ~/ros_flutter_gui
+sh ./start.sh
 
-# 网页 Demo 模式（无需 ROS，立刻看到界面）
-python3 -m http.server 8080 --directory install/ros2_webui/share/ros2_webui/static
-# 网页 rosbridge 模式（需要 ROS）
-# 终端1：单独起 rosbridge
-ros2 launch rosbridge_server rosbridge_websocket_launch.xml
-# 终端2：静态服务
-python3 -m http.server 8080 --directory ~/dev_ws/install/ros2_webui/share/ros2_webui/static
+# NeuPAN发布目标
+ros2 launch my_bot_nav neupan.launch.py use_sim_time:=true   config_file:=$(ros2 pkg prefix my_bot_nav)/share/my_bot_nav/config/sim/neupan_sim.yaml   model:=$(ros2 pkg prefix my_bot_nav)/share/my_bot_nav/config/common/neupan/diff_mybot.bin   control_rate:=10.0 replan_rate:=1.0 robot_radius:=0.11 simplify_tolerance:=0.05
+
+# NeuPAN调试车不动
+ros2 launch my_bot_nav neupan.launch.py use_sim_time:=true   config_file:=$(ros2 pkg prefix my_bot_nav)/share/my_bot_nav/config/sim/neupan_sim.yaml   model:=$(ros2 pkg prefix my_bot_nav)/share/my_bot_nav/config/common/neupan/diff_mybot.bin   cmd_vel_topic:=/neupan_cmd_vel_dry
 
 # 调试全局规划
 ros2 action send_goal /compute_path_to_pose nav2_msgs/action/ComputePathToPose \

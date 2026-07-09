@@ -1,6 +1,6 @@
 # Nav2 导航调参指南
 
-> 配置文件：`config/nav2_params_hw.yaml`
+> 配置文件：`config/hw/nav2_params_hw.yaml`
 > 机器人尺寸（来自 URDF `robot_core.xacro`）：底盘 12.3×13.0cm，含车轮宽 **20.2cm**
 > 参考来源：[Nav2 官方文档](https://navigation.ros.org/)、[Nav2 MPPI Tuning Guide](https://navigation.ros.org/configuration/packages/configuring-mppi.html)、[Nav2 GitHub Discussions](https://github.com/ros-navigation/navigation2/discussions)、Steve Macenski 的调参博客
 
@@ -330,7 +330,7 @@ max_decel:    [-0.8, 0.0, -1.5] # vx: -1.0 → -0.8
 # /local_plan                 MPPI 当前执行轨迹（需开启 visualize: true）
 
 # 开启 MPPI 轨迹可视化（调试时临时开启，正式运行关闭）
-# 修改 nav2_params_hw.yaml：visualize: true，重启 nav
+# 修改 config/hw/nav2_params_hw.yaml：visualize: true，重启 nav
 
 # 查看导航状态
 ros2 topic echo /navigate_to_pose/_action/status --once

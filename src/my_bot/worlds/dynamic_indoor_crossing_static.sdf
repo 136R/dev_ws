@@ -1,0 +1,107 @@
+<?xml version="1.0"?>
+<!-- Static mapping world for dynamic_indoor_crossing.sdf.
+     Same walls and markers as the dynamic validation world, but with no
+     moving actors. Use this world to build a clean map for localization. -->
+<sdf version="1.6">
+    <world name="dynamic_indoor_crossing_static">
+
+        <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics" />
+        <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands" />
+        <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster" />
+        <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
+            <render_engine>ogre2</render_engine>
+        </plugin>
+        <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu" />
+
+        <light type="directional" name="sun">
+            <cast_shadows>true</cast_shadows>
+            <pose>0 0 10 0 0 0</pose>
+            <diffuse>0.8 0.8 0.8 1</diffuse>
+            <specular>0.2 0.2 0.2 1</specular>
+            <attenuation>
+                <range>1000</range>
+                <constant>0.9</constant>
+                <linear>0.01</linear>
+                <quadratic>0.001</quadratic>
+            </attenuation>
+            <direction>-0.5 0.1 -0.9</direction>
+        </light>
+
+        <model name="ground_plane">
+            <static>true</static>
+            <link name="link">
+                <collision name="collision">
+                    <geometry><plane><normal>0 0 1</normal></plane></geometry>
+                </collision>
+                <visual name="visual">
+                    <geometry><plane><normal>0 0 1</normal><size>100 100</size></plane></geometry>
+                    <material>
+                        <ambient>0.78 0.78 0.74 1</ambient>
+                        <diffuse>0.78 0.78 0.74 1</diffuse>
+                    </material>
+                </visual>
+            </link>
+        </model>
+
+        <!-- L-shaped indoor corridor. Free corridor is roughly 1.3 m wide. -->
+        <model name="wall_south"><static>true</static><pose>1.05 -0.70 0.40 0 0 0</pose><link name="link">
+            <collision name="collision"><geometry><box><size>4.10 0.10 0.80</size></box></geometry></collision>
+            <visual name="visual"><geometry><box><size>4.10 0.10 0.80</size></box></geometry>
+                <material><ambient>0.58 0.58 0.56 1</ambient><diffuse>0.58 0.58 0.56 1</diffuse></material></visual>
+        </link></model>
+
+        <model name="wall_north_straight"><static>true</static><pose>0.55 0.70 0.40 0 0 0</pose><link name="link">
+            <collision name="collision"><geometry><box><size>3.10 0.10 0.80</size></box></geometry></collision>
+            <visual name="visual"><geometry><box><size>3.10 0.10 0.80</size></box></geometry>
+                <material><ambient>0.58 0.58 0.56 1</ambient><diffuse>0.58 0.58 0.56 1</diffuse></material></visual>
+        </link></model>
+
+        <model name="wall_west"><static>true</static><pose>-1.00 0 0.40 0 0 0</pose><link name="link">
+            <collision name="collision"><geometry><box><size>0.10 1.50 0.80</size></box></geometry></collision>
+            <visual name="visual"><geometry><box><size>0.10 1.50 0.80</size></box></geometry>
+                <material><ambient>0.58 0.58 0.56 1</ambient><diffuse>0.58 0.58 0.56 1</diffuse></material></visual>
+        </link></model>
+
+        <model name="wall_inner_corner"><static>true</static><pose>2.10 1.75 0.40 0 0 0</pose><link name="link">
+            <collision name="collision"><geometry><box><size>0.10 2.10 0.80</size></box></geometry></collision>
+            <visual name="visual"><geometry><box><size>0.10 2.10 0.80</size></box></geometry>
+                <material><ambient>0.58 0.58 0.56 1</ambient><diffuse>0.58 0.58 0.56 1</diffuse></material></visual>
+        </link></model>
+
+        <model name="wall_outer_corner"><static>true</static><pose>3.55 1.10 0.40 0 0 0</pose><link name="link">
+            <collision name="collision"><geometry><box><size>0.10 3.60 0.80</size></box></geometry></collision>
+            <visual name="visual"><geometry><box><size>0.10 3.60 0.80</size></box></geometry>
+                <material><ambient>0.58 0.58 0.56 1</ambient><diffuse>0.58 0.58 0.56 1</diffuse></material></visual>
+        </link></model>
+
+        <model name="wall_goal_end"><static>true</static><pose>2.825 2.90 0.40 0 0 0</pose><link name="link">
+            <collision name="collision"><geometry><box><size>1.55 0.10 0.80</size></box></geometry></collision>
+            <visual name="visual"><geometry><box><size>1.55 0.10 0.80</size></box></geometry>
+                <material><ambient>0.58 0.58 0.56 1</ambient><diffuse>0.58 0.58 0.56 1</diffuse></material></visual>
+        </link></model>
+
+        <!-- Visual-only start and goal markers. They have no collision and do not affect lidar. -->
+        <model name="start_marker">
+            <static>true</static>
+            <pose>0 0 0.01 0 0 0</pose>
+            <link name="link">
+                <visual name="visual">
+                    <geometry><cylinder><radius>0.18</radius><length>0.02</length></cylinder></geometry>
+                    <material><ambient>0.1 0.45 0.95 1</ambient><diffuse>0.1 0.45 0.95 1</diffuse></material>
+                </visual>
+            </link>
+        </model>
+
+        <model name="goal_marker">
+            <static>true</static>
+            <pose>3.0 2.1 0.01 0 0 0</pose>
+            <link name="link">
+                <visual name="visual">
+                    <geometry><cylinder><radius>0.18</radius><length>0.02</length></cylinder></geometry>
+                    <material><ambient>0.1 0.75 0.25 1</ambient><diffuse>0.1 0.75 0.25 1</diffuse></material>
+                </visual>
+            </link>
+        </model>
+
+    </world>
+</sdf>

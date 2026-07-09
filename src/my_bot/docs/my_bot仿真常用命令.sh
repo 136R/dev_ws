@@ -11,8 +11,6 @@ colcon build --packages-select my_bot # C++ 编译单个功能包
 # 启动gazebo 并加载机器人与场地
 ros2 launch my_bot launch_sim.launch.py
 # slam_toolbox 建图
-ros2 launch slam_toolbox online_async_launch.py slam_params_file:=/home/bingda/dev_ws/src/my_bot/config/mapper_params_online_async.yaml use_sim_time:=true
-
 ros2 launch my_bot_slam slam.launch.py use_sim_time:=true mode:=mapping
 
 # rviz2
@@ -21,7 +19,7 @@ ros2 run rviz2 rviz2 --ros-args -p use_sim_time:=true
 ros2 run teleop_twist_keyboard teleop_twist_keyboard
 
 # slam_toolbox 加载已知地图定位
-ros2 launch slam_toolbox localization_launch.py slam_params_file:=/home/bingda/dev_ws/src/my_bot/config/mapper_params_online_async.yaml use_sim_time:=true
+ros2 launch my_bot_slam slam.launch.py use_sim_time:=true mode:=localization
 # nav2
 ros2 launch my_bot navigation_launch.py params_file:=/home/bingda/dev_ws/src/my_bot/config/nav2_params.yaml use_sim_time:=true
 
