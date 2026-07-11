@@ -15,14 +15,23 @@ def _include_nav(context, pkg_nav):
     use_sim_time = LaunchConfiguration("use_sim_time")
     params_file = LaunchConfiguration("params_file").perform(context)
     autostart = LaunchConfiguration("autostart")
+    controller = LaunchConfiguration("controller").perform(context).lower()
 
     if not params_file:
         use_sim = use_sim_time.perform(context).lower() == "true"
+        if controller == "neupan":
+            params_name = (
+                "nav2_params_neupan.yaml" if use_sim else "nav2_params_hw_neupan.yaml"
+            )
+        else:  # rpp (默认)
+            params_name = (
+                "nav2_params_rpp.yaml" if use_sim else "nav2_params_hw_rpp.yaml"
+            )
         params_file = os.path.join(
             pkg_nav,
             "config",
             "sim" if use_sim else "hw",
-            "nav2_params_rpp.yaml" if use_sim else "nav2_params_hw_rpp.yaml",
+            params_name,
         )
 
     return [
@@ -52,6 +61,11 @@ def generate_launch_description():
         default_value="",
         description="Optional Nav2 params file override",
     )
+    controller_arg = DeclareLaunchArgument(
+        "controller",
+        default_value="rpp",
+        description="局部控制器: rpp (默认) 或 neupan (仿真/实机均可)",
+    )
     autostart_arg = DeclareLaunchArgument(
         "autostart",
         default_value="true",
@@ -64,6 +78,7 @@ def generate_launch_description():
         [
             use_sim_time_arg,
             params_file_arg,
+            controller_arg,
             autostart_arg,
             OpaqueFunction(function=_include_nav, args=[pkg_nav]),
         ]

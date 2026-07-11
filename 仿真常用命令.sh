@@ -49,6 +49,7 @@ ros2 launch my_bot_slam slam.launch.py use_sim_time:=true mode:=localization
 ros2 run rviz2 rviz2 --ros-args -p use_sim_time:=true
 # 4 nav2
 ros2 launch my_bot_nav nav.launch.py use_sim_time:=true
+ros2 launch my_bot_nav nav.launch.py use_sim_time:=true controller:=neupan
 # 障碍层
 ros2 launch my_bot_nav keepout.launch.py use_sim_time:=true
 
@@ -64,7 +65,7 @@ cd ~/ros_flutter_gui
 sh ./start.sh
 
 # NeuPAN发布目标
-ros2 launch my_bot_nav neupan.launch.py use_sim_time:=true   config_file:=$(ros2 pkg prefix my_bot_nav)/share/my_bot_nav/config/sim/neupan_sim.yaml   model:=$(ros2 pkg prefix my_bot_nav)/share/my_bot_nav/config/common/neupan/diff_mybot.bin   control_rate:=10.0 replan_rate:=1.0 robot_radius:=0.11 simplify_tolerance:=0.05
+ros2 launch my_bot_nav neupan.launch.py use_sim_time:=true   config_file:=$(ros2 pkg prefix my_bot_nav)/share/my_bot_nav/config/sim/neupan_sim.yaml   model:=$(ros2 pkg prefix my_bot_nav)/share/my_bot_nav/config/common/neupan/diff_mybot.bin   control_rate:=20.0 replan_rate:=0.0 robot_radius:=0.11 simplify_tolerance:=0.05
 
 # NeuPAN调试车不动
 ros2 launch my_bot_nav neupan.launch.py use_sim_time:=true   config_file:=$(ros2 pkg prefix my_bot_nav)/share/my_bot_nav/config/sim/neupan_sim.yaml   model:=$(ros2 pkg prefix my_bot_nav)/share/my_bot_nav/config/common/neupan/diff_mybot.bin   cmd_vel_topic:=/neupan_cmd_vel_dry

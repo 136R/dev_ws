@@ -39,7 +39,7 @@ def generate_launch_description():
         default_value=os.path.join(
             get_package_share_directory(package_name),
             "worlds",
-            "dynamic_indoor_crossing_static.sdf",
+            "my_world_d.sdf",
         ),
         description="World to load",
     )
@@ -56,8 +56,8 @@ def generate_launch_description():
             ]
         ),
         launch_arguments={
-            "gz_args": ["-r -v4 ", world],
-            # "gz_args": ["-s -r -v1 ", world],
+            # "gz_args": ["-r -v4 ", world],
+            "gz_args": ["-s -r -v1 ", world],
             "on_exit_shutdown": "true",
         }.items(),
     )

@@ -28,7 +28,7 @@ slam_toolbox:
     # mode: mapping
     mode: localization    # 定位模式：加载已有地图（作者提示此模式需细调 + 依赖高质量里程计）
 
-    map_file_name: /home/bingda/dev_ws/src/my_bot_slam/config/maps/sim/serialize_map/dynamic_indoor_crossing_static
+    map_file_name: /home/bingda/dev_ws/src/my_bot_slam/config/maps/sim/serialize_map/my_map
     map_start_pose: [0.0, 0.0, 0.0]
     # map_start_at_dock: true
 
@@ -100,6 +100,6 @@ slam_toolbox:
     use_response_expansion: true
 
     # min_pass_through: 栅格被判占用/空闲前需穿过的激光束数（防杂散光污染地图）。调大→更抗噪但更新慢；调小→更新快但易受噪声
-    min_pass_through: 3
+    min_pass_through: 2
     # occupancy_threshold: 命中/穿过光束比超过此值才标记为占用(0~1)。调大→地图更"空"（薄障碍易丢）；调小→障碍更"实"但易残噪
-    occupancy_threshold: 0.5
+    occupancy_threshold: 0.15

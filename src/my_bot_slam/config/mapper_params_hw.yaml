@@ -1,14 +1,23 @@
+# =============================================================================
+# slam_toolbox 建图/定位参数（仿真）
+# 注意：slam_toolbox 作者没有专门调参指南，README 仅给出几条零散建议：
+#   - 求解器实测推荐 SPARSE_NORMAL_CHOLESKY + SCHUR_JACOBI，勿轻改
+#   - 里程计好可不用 loss；有打滑/异常时建议 HuberLoss
+#   - localization 模式需针对机器人细调，且依赖高质量里程计
+#   - 默认参数随位姿图规模 O(N) 增长
+# 下面只对"常调、影响大"的参数加注（含调大/调小效果 + 源码默认值），
+# 依据：README + lib/karto_sdk/src/Mapper.cpp（https://github.com/SteveMacenski/slam_toolbox）
+# =============================================================================
 slam_toolbox:
   ros__parameters:
 
-    # Plugin params
+    # Plugin params（求解器：作者实测推荐组合，一般不改）
     solver_plugin: solver_plugins::CeresSolver
     ceres_linear_solver: SPARSE_NORMAL_CHOLESKY
     ceres_preconditioner: SCHUR_JACOBI
     ceres_trust_strategy: LEVENBERG_MARQUARDT
     ceres_dogleg_type: TRADITIONAL_DOGLEG
-    ceres_loss_function: None
-    # num_threads: 4  # Orange Pi 5 Pro (was 12 for PC)
+    ceres_loss_function: HuberLoss   # 鲁棒核；里程计好用 None 即可，若打滑/外点多改 HuberLoss（作者建议）
 
     # ROS Parameters
     odom_frame: odom
@@ -16,20 +25,24 @@ slam_toolbox:
     base_frame: base_footprint
     scan_topic: /scan_filtered
     use_map_saver: true
-    mode: mapping
+    # mode: mapping
+    mode: localization    # 定位模式：加载已有地图（作者提示此模式需细调 + 依赖高质量里程计）
 
-    map_file_name: /home/bingda/dev_ws/src/my_bot_slam/config/maps/hw/serialize_map/my_map
+    map_file_name: /home/orangepi/dev_ws/src/my_bot_slam/config/maps/hw/serialize_map/gowei
     map_start_pose: [0.0, 0.0, 0.0]
     # map_start_at_dock: true
 
-    # map_file_name and map_start_pose are used only when launch mode:=localization.
+    # No map_file_name or map_start_pose needed for mapping mode
 
     debug_logging: false
     throttle_scans: 1
     transform_publish_period: 0.02
-    map_update_interval: 2.0
+    # map_update_interval: 占据栅格重建/发布间隔(秒)。调大→省 CPU 但地图刷新慢；调小→更及时但更耗 CPU
+    map_update_interval: 1.0
+    # resolution: 地图分辨率(米/格)。调小→更精细但内存/CPU 显著上升；调大→省资源但丢细节
     resolution: 0.05
     min_laser_range: 0.1
+    # max_laser_range: 参与建图的激光最大有效距离(米)。调大→利用远点、回环更易但远点噪声大；调小→只信近处更稳但信息少
     max_laser_range: 4.0
     minimum_time_interval: 0.1
     transform_timeout: 0.5
@@ -38,22 +51,35 @@ slam_toolbox:
     enable_interactive_mode: true
 
     # General Parameters
-    use_scan_matching: true
+    use_scan_matching: true       # 是否用扫描匹配精修里程计；true 几乎总应开启，false=完全信里程计
     use_scan_barycenter: true
+
+    # minimum_travel_distance / minimum_travel_heading: 触发新增关键帧的最小平移(米)/转角(弧度)，默认 0.2 / 10°。
+    #   调小→关键帧更密、地图更细但计算与内存上升；调大→关键帧稀疏、省资源但细节和回环质量下降
     minimum_travel_distance: 0.2
     minimum_travel_heading: 0.2
-    scan_buffer_size: 10
+
+    # scan_buffer_size: 扫描链缓存帧数（定位模式=环形缓冲帧数），源码默认 70，经验≈max_scan_distance/travel_distance。
+    #   调大→匹配历史更长更鲁棒但耗内存；调小→省内存但可用历史少、易失配
+    scan_buffer_size: 40
     scan_buffer_maximum_scan_distance: 10.0
     link_match_minimum_response_fine: 0.35
     link_scan_maximum_distance: 1.5
+
+    # loop_search_maximum_distance: 参与回环检测的候选帧最大距离(米)，源码默认 4.0。
+    #   调大→更远也尝试闭环、易闭大环但更耗时且易误闭合；调小→更保守、漏检大环
     loop_search_maximum_distance: 3.0
-    do_loop_closing: true
+    do_loop_closing: true         # 是否启用回环；作者建议"拿不准就 true"
     loop_match_minimum_chain_size: 10
     loop_match_maximum_variance_coarse: 3.0
     loop_match_minimum_response_coarse: 0.35
-    loop_match_minimum_response_fine: 0.45
+    # loop_match_minimum_response_fine: 精搜索确认回环所需最小响应(0~1)，源码默认 0.8。
+    #   调大→回环更可靠但漏检增多；调小→回环更激进但易误闭合导致地图错乱
+    loop_match_minimum_response_fine: 0.6
 
-    correlation_search_space_dimension: 0.5
+    # correlation_search_space_dimension: 扫描匹配相关搜索网格边长(米)，源码默认 0.3。
+    #   调大→搜索范围更大、里程计误差大时更能找回但更耗 CPU；调小→更快但容错小
+    correlation_search_space_dimension: 0.4
     correlation_search_space_resolution: 0.01
     correlation_search_space_smear_deviation: 0.03
 
@@ -61,6 +87,9 @@ slam_toolbox:
     loop_search_space_resolution: 0.05
     loop_search_space_smear_deviation: 0.03
 
+    # distance_variance_penalty / angle_variance_penalty: 匹配位姿偏离里程计的平移/角度惩罚方差
+    #   （惩罚为 <1 的乘子），源码默认 0.3^2 / (20°)^2。
+    #   调大(方差大=约束松)→惩罚更弱、更信扫描匹配；调小(约束紧)→惩罚更强、更信里程计
     distance_variance_penalty: 0.5
     angle_variance_penalty: 1.0
     fine_search_angle_offset: 0.00349
@@ -69,5 +98,8 @@ slam_toolbox:
     minimum_angle_penalty: 0.9
     minimum_distance_penalty: 0.5
     use_response_expansion: true
-    min_pass_through: 1
-    occupancy_threshold: 0.1
+
+    # min_pass_through: 栅格被判占用/空闲前需穿过的激光束数（防杂散光污染地图）。调大→更抗噪但更新慢；调小→更新快但易受噪声
+    min_pass_through: 2
+    # occupancy_threshold: 命中/穿过光束比超过此值才标记为占用(0~1)。调大→地图更"空"（薄障碍易丢）；调小→障碍更"实"但易残噪
+    occupancy_threshold: 0.15

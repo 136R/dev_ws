@@ -47,7 +47,7 @@ def generate_launch_description():
         DeclareLaunchArgument("robot_radius", default_value="0.11",
                               description="astar 全局规划膨胀半径；窄道测试需调小"),
         DeclareLaunchArgument("scan_topic", default_value="/scan_filtered"),
-        DeclareLaunchArgument("control_rate", default_value="10.0",
+        DeclareLaunchArgument("control_rate", default_value="20.0",
                               description="NeuPAN 控制/重规划频率(Hz);"
                                           " 单帧算不完时可降低(如 20)以稳住规划"),
         DeclareLaunchArgument("replan_rate", default_value="1.0",

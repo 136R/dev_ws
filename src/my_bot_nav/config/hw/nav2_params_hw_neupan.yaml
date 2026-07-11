@@ -1,5 +1,11 @@
 # 全局: ThetaStar
-# 局部: RPP
+# 局部: NeuPAN (nav2_core::Controller 插件, neupan_cpp_ros::NeuPANController) —— 实机
+#
+# 由 nav2_params_hw_rpp.yaml 派生。仅改三处:
+#   1. controller_server 的 FollowPath 换成 NeuPAN 插件 (config_file 指实机专属 neupan_hw.yaml)
+#   2. keepout_filter 先关闭 (首版验证 NeuPAN 导航/避障; 阶段4再启用)
+#   3. velocity_smoother 放宽到匹配 NeuPAN 限值, 以免削平 NeuPAN 输出
+# 其余全部沿用实机 RPP (use_sim_time False, /scan_filtered, footprint 0.126, ThetaStar 等)。
 
 bt_navigator:
   ros__parameters:
@@ -92,54 +98,20 @@ controller_server:
       stateful: True
       plugin: "nav2_controller::SimpleGoalChecker"
       xy_goal_tolerance: 0.05        # 目标X、Y
-      yaw_goal_tolerance: 6.28       # 目标 Yaw
+      yaw_goal_tolerance: 6.28       # 目标 Yaw (差速 line 跟踪不保证终点朝向)
 
-    # ───────────────────────────── RPP 控制器 ─────────────────────────────
+    # ─────────────────────────── NeuPAN 控制器 ───────────────────────────
+    # 全局路径经 setPlan() 传入 → NeuPAN 跟踪; 障碍来自 local costmap 高代价栅格。
     FollowPath:
-      plugin: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
-
-      # —— 速度/加速度（对齐你的 velocity_smoother：max 0.2 m/s, accel 0.8）——
-      desired_linear_vel: 0.2
-      min_approach_linear_velocity: 0.05      # 接近目标时的最低速
-      approach_velocity_scaling_dist: 0.4     # 距目标 0.4m 开始线性减速
-      max_allowed_time_to_collision_up_to_carrot: 1.0   # 1s 内会撞就停
-
-      # —— Lookahead（前瞻点）——
-      # 室内 0.2 m/s 低速场景下，lookahead 0.4~0.6m 比较合适
-      use_velocity_scaled_lookahead_dist: true
-      lookahead_dist: 0.3            # 固定 lookahead 兜底
-      min_lookahead_dist: 0.15        # 慢速时也不能太短
-      max_lookahead_dist: 0.4        # 高速时也不能太长
-      lookahead_time: 1.0            # vel_scaled 模式下 = vel * 1.5s
-
-      # —— 速度调控（regulation）——
-      # 这是 RPP 的招牌：在急转弯/接近障碍时自动减速
-      use_regulated_linear_velocity_scaling: true
-      regulated_linear_scaling_min_radius: 0.45   # 转弯半径 < 0.45m 开始减速
-      regulated_linear_scaling_min_speed: 0.05   # 减速下限
-
-      use_cost_regulated_linear_velocity_scaling: true   # 靠近障碍也减速
-      cost_scaling_dist: 0.3         # 距障碍 0.3m 内开始减速
-      cost_scaling_gain: 1.0
-      inflation_cost_scaling_factor: 6.0    # 必须等于 local_costmap inflation_layer 的 cost_scaling_factor
-
-      # —— 差速车专项：原地转向对齐路径 ——
-      # 这是 RPP 替代 RotationShim 的内置功能，差速车强烈建议开启
-      use_rotate_to_heading: true
-      rotate_to_heading_min_angle: 0.349        # 偏差 > 20° 时先原地转
-      rotate_to_heading_angular_vel: 0.6        # 原地转的角速度
-      max_angular_accel: 1.5                    # 对齐 velocity_smoother 的 1.5
-
-      # —— 碰撞检测（前瞻撞墙就停）——
-      use_collision_detection: false
-
-      # —— 反向行驶（差速车默认禁，配合 use_rotate_to_heading）——
-      allow_reversing: false
-
-      # —— 其他 ——
-      transform_tolerance: 0.1
-      max_robot_pose_search_dist: 10.0
-      use_interpolation: true        # 路径点稀疏时插值，跟踪更平滑
+      plugin: "neupan_cpp_ros::NeuPANController"
+      config_package: "my_bot_nav"                             # 相对路径按此包 share 解析
+      config_file: "config/hw/neupan_hw.yaml"                 # 实机专属 NeuPAN 调参 (与模型几何一致)
+      dune_checkpoint: "config/common/neupan/diff_mybot.bin"  # 用户自训模型
+      map_frame: "map"
+      base_frame: "base_footprint"
+      include_initial_path_direction: false   # 参考朝向由路径点梯度推断
+      cost_threshold: 254                      # >= 此代价的栅格视为障碍 (LETHAL=254, INSCRIBED=253)
+      obstacle_stride: 1                       # 栅格抽稀步长 (1=全取; 增大可降负载)
 
 local_costmap:
   local_costmap:
@@ -157,7 +129,9 @@ local_costmap:
       # footprint: "[[0.035, 0.101], [0.035, -0.101], [-0.089, -0.101], [-0.089, 0.101]]"
       footprint: "[[0.05, 0.126], [0.05, -0.126], [-0.104, -0.126], [-0.104, 0.126]]"
 
-      plugins: ["voxel_layer", "keepout_filter", "inflation_layer"]
+      # 阶段4启用 keepout: 把下一行替换为含 keepout_filter 的版本
+      # plugins: ["voxel_layer", "keepout_filter", "inflation_layer"]
+      plugins: ["voxel_layer", "inflation_layer"]
       keepout_filter:
         plugin: "nav2_costmap_2d::KeepoutFilter"
         enabled: True
@@ -205,7 +179,9 @@ global_costmap:
 
       resolution: 0.05
       track_unknown_space: true
-      plugins: ["static_layer", "obstacle_layer", "keepout_filter", "inflation_layer"]
+      # 阶段4启用 keepout: 把下一行替换为含 keepout_filter 的版本
+      # plugins: ["static_layer", "obstacle_layer", "keepout_filter", "inflation_layer"]
+      plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
         enabled: True
@@ -233,7 +209,7 @@ global_costmap:
         inflation_radius: 0.2
       always_send_full_costmap: True
 
-# Keepout 禁行区滤波信息服务（掩码由 keepout_mask_diff 节点直接发布）
+# Keepout 禁行区滤波信息服务（阶段4随实机 keepout 流程使用）
 costmap_filter_info_server:
   ros__parameters:
     use_sim_time: False
@@ -325,10 +301,10 @@ velocity_smoother:
     smoothing_frequency: 20.0
     scale_velocities: False
     feedback: "OPEN_LOOP"
-    max_velocity: [0.2, 0.0, 0.6]
-    min_velocity: [-0.2, 0.0, -0.6]
-    max_accel: [0.8, 0.0, 1.5]
-    max_decel: [-0.8, 0.0, -1.5]
+    max_velocity: [0.32, 0.0, 3.2]
+    min_velocity: [-0.32, 0.0, -3.2]
+    max_accel: [1.1, 0.0, 2.4]
+    max_decel: [-1.1, 0.0, -2.4]
     odom_topic: "odom"
     odom_duration: 0.1
     deadband_velocity: [0.0, 0.0, 0.0]
