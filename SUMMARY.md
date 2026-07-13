@@ -82,10 +82,10 @@
 
 | 包            | 职责                                                                    | 速查表                                                                |
 | ------------- | ----------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| my\_bot       | URDF/xacro + 仿真资源（Gazebo 世界、控制器、bridge）                    | [sim\_cheatsheet.md](src/my_bot/docs/sim_cheatsheet.md)               |
-| my\_bot\_hw   | ros2\_controlSystemInterface 插件 + 实机 bringup launch + 滤波/EKF 配置 | [robot\_hw\_cheatsheet.md](src/my_bot_hw/docs/robot_hw_cheatsheet.md) |
-| my\_bot\_slam | SLAM Toolbox launch + 三套 mapper\_params + 已保存地图                  | [slam\_cheatsheet.md](src/my_bot_slam/docs/slam_cheatsheet.md)        |
-| my\_bot\_nav  | Nav2 launch + 五套 nav2\_params（含 BT 配置）                           | [nav\_cheatsheet.md](src/my_bot_nav/docs/nav_cheatsheet.md)           |
+| my\_bot       | URDF/xacro + 仿真资源（Gazebo 世界、控制器、bridge）                    | [sim\_cheatsheet.md](src/my_bot/docs/速查.md)               |
+| my\_bot\_hw   | ros2\_controlSystemInterface 插件 + 实机 bringup launch + 滤波/EKF 配置 | [robot\_hw\_cheatsheet.md](src/my_bot_hw/docs/速查.md) |
+| my\_bot\_slam | SLAM Toolbox launch + 三套 mapper\_params + 已保存地图                  | [slam\_cheatsheet.md](src/my_bot_slam/docs/速查.md)        |
+| my\_bot\_nav  | Nav2 launch + 五套 nav2\_params（含 BT 配置）                           | [nav\_cheatsheet.md](src/my_bot_nav/docs/速查.md)           |
 | sllidar\_ros2 | 思岚 C1 厂商驱动（USB 460800）                                          | 不调，开箱即用                                                        |
 
 ---
@@ -180,9 +180,9 @@ robot.urdf.xacro 顶层接受参数 sim\_mode:=true|false：
 决策理由
 
 * 用 xacro 而非分两份 URDF：避免双源维护，几何参数一处改两处生效
-* 把 sim/hw 的 ros2\_control 描述拆成两个 xacro，由 launch 选择 —— 比 [xacro:if](xacro:if) 更清晰
+* 把 sim/hw 的 ros2\_control 描述拆成两个 xacro，由 launch 选择 —— 比 `xacro:if` 更清晰
 
-链向：[sim\_cheatsheet.md](src/my_bot/docs/sim_cheatsheet.md)
+链向：[sim\_cheatsheet.md](src/my_bot/docs/速查.md)
 
 ### S3.2 my\_bot\_hw —— ros2\_control 硬件接口 + 串口 + EKF
 
@@ -222,7 +222,7 @@ robot.urdf.xacro 顶层接受参数 sim\_mode:=true|false：
 
 与 STM32 的接口：见 [STM32\_SUMMARY.md §M2](STM32_SUMMARY.md#m2-串口通信协议与-ros2-的数据格式)
 
-链向：[robot\_hw\_cheatsheet.md](src/my_bot_hw/docs/robot_hw_cheatsheet.md)（含调试命令、TF 链排查、八条诊断清单）
+链向：[robot\_hw\_cheatsheet.md](src/my_bot_hw/docs/速查.md)（含调试命令、TF 链排查、八条诊断清单）
 
 ### S3.3 sllidar\_ros2 + laser\_filter —— 雷达链路
 
@@ -249,7 +249,7 @@ robot.urdf.xacro 顶层接受参数 sim\_mode:=true|false：
 * 三道滤波串联：单独的 range 不够，speckle 必须配合
 * angular\_bounds 占位：暂未发现固定遮挡，但保留位置便于将来增加
 
-链向：滤波细节见 laser\_filters.yaml 注释；C1 调试见 [robot\_hw\_cheatsheet.md](src/my_bot_hw/docs/robot_hw_cheatsheet.md)
+链向：滤波细节见 laser\_filters.yaml 注释；C1 调试见 [robot\_hw\_cheatsheet.md](src/my_bot_hw/docs/速查.md)
 
 ### S3.4 my\_bot\_slam —— 三套 mapper 配置的用途差异
 
@@ -276,7 +276,7 @@ launch 参数：
 
 调参缺口：见 §S4.3
 
-链向：[slam\_cheatsheet.md](src/my_bot_slam/docs/slam_cheatsheet.md)
+链向：[slam\_cheatsheet.md](src/my_bot_slam/docs/速查.md)
 
 ### S3.5 my\_bot\_nav —— TwistMux 优先级 + planner/controller 矩阵
 
@@ -303,7 +303,7 @@ BT 改动：用 IsPathValid 替代周期性重规划（详见 [调参素材 §RP
 
 决策理由：完整决策链见 §S4.1、§S4.2 与 [调参素材](docs/调参素材/调参素材.md)。
 
-链向：[nav\_cheatsheet.md](src/my_bot_nav/docs/nav_cheatsheet.md)、[docs/调参素材/调参素材.md](docs/调参素材/调参素材.md)
+链向：[nav\_cheatsheet.md](src/my_bot_nav/docs/速查.md)、[docs/调参素材/调参素材.md](docs/调参素材/调参素材.md)
 
 ---
 
@@ -354,7 +354,7 @@ MPPI：
 
 前置：SLAM 前要做 odom 校准 —— RViz2 看 /odom TF 选择 odom，跑一圈看能不能回到原点。
 
-调参细节：详见 [src/my\_bot\_slam/docs/slam\_mapping\_tuning\_guide.md](src/my_bot_slam/docs/slam_mapping_tuning_guide.md)（关键参数、建图失败模式排查均在该文档）。
+调参细节：详见 [src/my\_bot\_slam/docs/slam\_mapping\_tuning\_guide.md](src/my_bot_slam/docs/建图调参.md)（关键参数、建图失败模式排查均在该文档）。
 
 已确认要点：
 

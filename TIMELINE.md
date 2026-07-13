@@ -65,7 +65,7 @@
 
 链向
 
-* 仿真启动细节：[src/my\_bot/docs/sim\_cheatsheet.md](src/my_bot/docs/sim_cheatsheet.md)
+* 仿真启动细节：[src/my\_bot/docs/sim\_cheatsheet.md](src/my_bot/docs/速查.md)
 * 包职责定义：[docs/architecture/package\_layout.md](docs/architecture/package_layout.md)
 
 ---
@@ -188,7 +188,7 @@ TIMELINE 这里只一段概括，细节全部在[STM32\_SUMMARY.md](STM32_SUMMAR
 * [src/my\_bot\_hw/launch/robot\_bringup.launch.py](src/my_bot_hw/launch/robot_bringup.launch.py)
 * [src/my\_bot\_hw/config/hw\_controllers.yaml](src/my_bot_hw/config/hw_controllers.yaml)、[ekf\_hw.yaml](src/my_bot_hw/config/ekf_hw.yaml)、[laser\_filters.yaml](src/my_bot_hw/config/laser_filters.yaml)
 * [src/my\_bot\_slam/config/mapper\_params\_hw.yaml](src/my_bot_slam/config/mapper_params_hw.yaml)
-* [src/my\_bot\_nav/config/nav2\_params\_hw.yaml](src/my_bot_nav/config/nav2_params_hw.yaml)
+* `src/my_bot_nav/config/nav2_params_hw.yaml` *(当时的 DWB 参数，现已删除；当前用 `config/hw/nav2_params_hw_{rpp,neupan}.yaml`)*
 
 链向
 
@@ -236,7 +236,7 @@ ros2 topic echo /scan_filtered --once  # 经 laser_filters 后
 ros2 run tf2_ros tf2_echo odom base_footprint  # 由 EKF 发布
 ```
 
-排查清单参见 [src/my\_bot\_hw/docs/robot\_hw\_cheatsheet.md](src/my_bot_hw/docs/robot_hw_cheatsheet.md)。
+排查清单参见 [src/my\_bot\_hw/docs/robot\_hw\_cheatsheet.md](src/my_bot_hw/docs/速查.md)。
 
 ### 步骤 2：建图（首次跑或地图改变后）
 
@@ -301,4 +301,4 @@ ros2 topic pub --once /goal_pose geometry_msgs/PoseStamped \
 | EKF 输出           | ros2 topic echo /odometry/filtered              |
 | 静态参数           | ros2 param dump /<node\_name>                   |
 
-更多细节见各包 cheatsheet：[my\_bot\_hw](src/my_bot_hw/docs/robot_hw_cheatsheet.md) / [my\_bot\_slam](src/my_bot_slam/docs/slam_cheatsheet.md) / [my\_bot\_nav](src/my_bot_nav/docs/nav_cheatsheet.md)。
+更多细节见各包 cheatsheet：[my\_bot\_hw](src/my_bot_hw/docs/速查.md) / [my\_bot\_slam](src/my_bot_slam/docs/速查.md) / [my\_bot\_nav](src/my_bot_nav/docs/速查.md)。
