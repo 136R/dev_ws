@@ -33,9 +33,48 @@ if [[ ! "$NAME" =~ ^[A-Za-z0-9_-]+$ ]]; then
   echo "错误: 地图名只允许字母/数字/下划线/连字符。" >&2
   exit 1
 fi
-if [[ ! -f "$MAPS_ROOT/map/map.yaml" ]]; then
-  echo "错误: 找不到 $MAPS_ROOT/map/map.yaml。" >&2
-  echo "      app 后端要在跑、且已订阅到地图话题（它会把地图镜像到这里当复制源）。" >&2
+# ── 前置检查：先拦住，别等序列化完几十 MB 才炸 ────────────────────────────
+# 1) app 后端必须活着 —— 第 2 步的 pgm/tiles 全靠它产出
+if ! curl -fsS -m 5 "$BACKEND/getAllMapList" > /dev/null 2>&1; then
+  echo "错误: 连不上 app 后端 ($BACKEND)。" >&2
+  echo "      本脚本第 2 步要靠它产出 pgm / yaml / topology / tiles。" >&2
+  echo "      先起后端： cd ~/ros_flutter_gui && sh ./start.sh" >&2
+  echo >&2
+  echo "      注：WSL 下后端没跑时可能报 502 而不是 Connection refused —— WSL2 的 localhost" >&2
+  echo "      和 Windows 是打通的，请求会漏到 Windows 那边被别的东西接住。502 ≠ 后端出错。" >&2
+  exit 1
+fi
+
+# 2) /map 必须有发布者（slam 在跑）
+# 注意：不能写成 `ros2 topic info /map | grep -q ...` —— grep -q 一匹配就退出，
+# 上游 ros2 收到 SIGPIPE 而非零退出，在 `set -o pipefail` 下整条管道被判为失败，
+# 于是"匹配成功"反而走进错误分支。先落到变量里再匹配。
+MAP_INFO=$(ros2 topic info /map 2>/dev/null || true)
+if ! grep -q "Publisher count: [1-9]" <<< "$MAP_INFO"; then
+  echo "错误: /map 没有发布者 —— slam 没在跑。" >&2
+  echo "      先起： ros2 launch my_bot_slam slam.launch.py mode:=mapping" >&2
+  exit 1
+fi
+
+# 3) 后端的实时镜像必须和当前 /map 对得上。
+#    ~/.maps/map/ 是第 2 步的复制源，由后端订阅 /map 后写入。
+#    注意：不能用 mtime 判新鲜 —— /map 是 latched 且只在地图变化时才发布，
+#    而存图时机器人通常是停着的，镜像"很久没更新"完全正常。
+#    真正的判据是：镜像的尺寸和实时 /map 一致。不一致 = 后端拿的是上次会话的图。
+MIRROR="$MAPS_ROOT/map/map.yaml"
+if [[ ! -f "$MIRROR" ]]; then
+  echo "错误: 找不到 $MIRROR（app 后端的实时镜像，第 2 步的复制源）。" >&2
+  echo "      后端还没订阅到 /map。它是在 slam 之前起的吗？重启后端即可（/map 是 latched，会立刻收到）。" >&2
+  exit 1
+fi
+LIVE=$(ros2 topic echo /map --field info --once 2>/dev/null \
+        | awk '/^width:/{w=$2} /^height:/{h=$2} END{print w"x"h}')
+MIRR=$(awk '/^width:/{w=$2} /^height:/{h=$2} END{print w"x"h}' "$MIRROR")
+if [[ -n "$LIVE" && "$LIVE" != "x" && "$LIVE" != "$MIRR" ]]; then
+  echo "错误: 后端的镜像和实时 /map 对不上（镜像 $MIRR，实时 $LIVE）。" >&2
+  echo "      说明后端拿的是上次会话的地图 —— 照它复制会得到一张过期的图。" >&2
+  echo "      重启 app 后端即可（/map 是 latched，重启后会立刻收到当前地图）：" >&2
+  echo "        pkill -f ros_gui_backend && cd ~/ros_flutter_gui && sh ./start.sh" >&2
   exit 1
 fi
 

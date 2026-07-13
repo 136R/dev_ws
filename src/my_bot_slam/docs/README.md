@@ -25,6 +25,8 @@ nav_slam.launch.py                 → slam + nav 一起起（slam_mode:= 转发
 | **`map_file_name` 不在 yaml 里写死** | 手工改 yaml 会被 launch 的注入覆盖，白改 | `slam.launch.py` 按 `map:=` 或 `~/.maps/current_map` 现算，作为 launch 参数注入（优先级高于 yaml） |
 | **地图名不能叫 `map`** | 画的禁行区被 app 的实时镜像覆盖 | 见 [docs/APP](../../../docs/APP/) |
 | **app「另存为」的图缺 posegraph** | 起 localization 报错找不到 `.posegraph` | `slam.launch.py` 会按几何+像素相似度自动认亲补齐；找不到源图才报错 |
+| **`save_map.sh` 需要 app 后端在跑** | 只得半张地图：有 posegraph（能定位），但没有 pgm/tiles（app 显示不出来、keepout 没掩码）。脚本已加前置检查，会在序列化之前就拦住 | 第 2 步靠后端的 HTTP 接口产出 pgm/yaml/topology/tiles |
+| **`/map` 是 latched，且只在地图变化时才发布** | 别用 mtime 判断后端镜像新不新鲜 —— 存图时机器人停着不动，镜像很久没更新完全正常。正确判据是「镜像尺寸 == 实时 `/map` 尺寸」 | 实测：机器人静止时 `ros2 topic hz /map` 12 秒收不到一条 |
 | **localization 模式下 `/map` 会随扫描累积变化** | 别指望它每次启动都一模一样。掩码自带 origin，Nav2 按世界坐标对齐，所以不影响 keepout | 实测同一张 posegraph 两次启动得到 79×79 与 109×106 |
 
 ---
