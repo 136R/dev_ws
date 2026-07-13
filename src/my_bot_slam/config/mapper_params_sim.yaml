@@ -28,11 +28,10 @@ slam_toolbox:
     # mode: mapping
     mode: localization    # 定位模式：加载已有地图（作者提示此模式需细调 + 依赖高质量里程计）
 
-    map_file_name: /home/bingda/dev_ws/src/my_bot_slam/config/maps/sim/serialize_map/my_map
+    # map_file_name 由 slam.launch.py 按地图名注入（~/.maps/<name>/<name>），
+    # 地图名取自 map:= 参数或 ~/.maps/current_map。mapping 模式不需要它。
     map_start_pose: [0.0, 0.0, 0.0]
     # map_start_at_dock: true
-
-    # No map_file_name or map_start_pose needed for mapping mode
 
     debug_logging: false
     throttle_scans: 1

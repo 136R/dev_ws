@@ -3,8 +3,7 @@
 #
 # 由 nav2_params_rpp.yaml 派生。仅将 controller_server 的 FollowPath 换成 NeuPAN
 # 插件, 并放宽 velocity_smoother 角速度上限以免削平 NeuPAN 的急转避障。
-# 障碍来源为 local costmap (含静态+动态; keepout 阶段2再启用)。
-# 阶段1: keepout_filter 保持关闭 (与 RPP 文件一致, 见下方注释行)。
+# 障碍来源为 local costmap (含静态+动态+keepout 禁行区)。
 
 bt_navigator:
   ros__parameters:
@@ -128,9 +127,7 @@ local_costmap:
       # footprint: "[[0.035, 0.101], [0.035, -0.101], [-0.089, -0.101], [-0.089, 0.101]]"
       footprint: "[[0.05, 0.121], [0.05, -0.121], [-0.104, -0.121], [-0.104, 0.121]]"
 
-      # 阶段2启用 keepout: 把下一行替换为含 keepout_filter 的版本
-      # plugins: ["voxel_layer", "keepout_filter", "inflation_layer"]
-      plugins: ["voxel_layer", "inflation_layer"]
+      plugins: ["voxel_layer", "keepout_filter", "inflation_layer"]
       keepout_filter:
         plugin: "nav2_costmap_2d::KeepoutFilter"
         enabled: True
@@ -167,7 +164,7 @@ local_costmap:
 global_costmap:
   global_costmap:
     ros__parameters:
-      update_frequency: 0.2
+      update_frequency: 1.0
       publish_frequency: 1.0
       global_frame: map
       robot_base_frame: base_footprint
@@ -178,9 +175,7 @@ global_costmap:
 
       resolution: 0.05
       track_unknown_space: true
-      # 阶段2启用 keepout: 把下一行替换为含 keepout_filter 的版本
-      # plugins: ["static_layer", "obstacle_layer", "keepout_filter", "inflation_layer"]
-      plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
+      plugins: ["static_layer", "obstacle_layer", "keepout_filter", "inflation_layer"]
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
         enabled: True
@@ -208,7 +203,7 @@ global_costmap:
         inflation_radius: 0.2
       always_send_full_costmap: True
 
-# Keepout 禁行区滤波信息服务（阶段2随 keepout.launch.py 使用）
+# Keepout 禁行区滤波信息服务（随 keepout.launch.py 启动）
 costmap_filter_info_server:
   ros__parameters:
     use_sim_time: True

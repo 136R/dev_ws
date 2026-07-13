@@ -9,7 +9,7 @@ install(
 )
 
 install(PROGRAMS
-  scripts/keepout_mask_diff.py
+  scripts/keepout_mask_reloader.py
   scripts/neupan_metrics.py
   DESTINATION lib/${PROJECT_NAME}
 )

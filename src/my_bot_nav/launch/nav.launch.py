@@ -7,6 +7,7 @@ from launch.actions import (
     IncludeLaunchDescription,
     OpaqueFunction,
 )
+from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 
@@ -44,7 +45,20 @@ def _include_nav(context, pkg_nav):
                 "params_file": params_file,
                 "autostart": autostart,
             }.items(),
-        )
+        ),
+        # 禁行区流水线与 Nav2 用同一份 params（里面有 costmap_filter_info_server 配置），
+        # 地图名留空则由 keepout.launch.py 读 ~/.maps/current_map。
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(
+                os.path.join(pkg_nav, "launch", "keepout.launch.py")
+            ),
+            condition=IfCondition(LaunchConfiguration("keepout")),
+            launch_arguments={
+                "use_sim_time": use_sim_time,
+                "params_file": params_file,
+                "map": LaunchConfiguration("map"),
+            }.items(),
+        ),
     ]
 
 
@@ -71,8 +85,16 @@ def generate_launch_description():
         default_value="true",
         description="Automatically startup the Nav2 stack",
     )
-
-    use_sim_time = LaunchConfiguration("use_sim_time")
+    keepout_arg = DeclareLaunchArgument(
+        "keepout",
+        default_value="true",
+        description="同时启动 keepout 禁行区流水线",
+    )
+    map_arg = DeclareLaunchArgument(
+        "map",
+        default_value="",
+        description="地图名；留空则读 ~/.maps/current_map",
+    )
 
     return LaunchDescription(
         [
@@ -80,6 +102,8 @@ def generate_launch_description():
             params_file_arg,
             controller_arg,
             autostart_arg,
+            keepout_arg,
+            map_arg,
             OpaqueFunction(function=_include_nav, args=[pkg_nav]),
         ]
     )
