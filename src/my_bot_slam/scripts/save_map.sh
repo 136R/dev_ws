@@ -56,25 +56,29 @@ if ! grep -q "Publisher count: [1-9]" <<< "$MAP_INFO"; then
   exit 1
 fi
 
-# 3) 后端的实时镜像必须和当前 /map 对得上。
+# 3) 后端必须正在持续镜像 /map。
 #    ~/.maps/map/ 是第 2 步的复制源，由后端订阅 /map 后写入。
-#    注意：不能用 mtime 判新鲜 —— /map 是 latched 且只在地图变化时才发布，
-#    而存图时机器人通常是停着的，镜像"很久没更新"完全正常。
-#    真正的判据是：镜像的尺寸和实时 /map 一致。不一致 = 后端拿的是上次会话的图。
+#    slam 按 map_update_interval（sim/hw 均为 1.0s）定时重建并发布 /map，
+#    机器人静止时照发不误，所以后端的镜像应当一直是新鲜的（实测年龄 ~1s）。
+#
+#    镜像陈旧 = 后端收不到 /map。最典型的一种：仿真里 gazebo 挂了但 slam 进程还活着 ——
+#    use_sim_time 下 /clock 停摆、ROS 定时器永不触发，slam 不再发 /map。
+#    这种情况下 /map 仍然【有发布者】，所以上面第 2 条查不出来，只有 mtime 能抓到。
 MIRROR="$MAPS_ROOT/map/map.yaml"
+STALE_SEC=30           # /map 是 1Hz，30s 留了 30 倍余量
 if [[ ! -f "$MIRROR" ]]; then
   echo "错误: 找不到 $MIRROR（app 后端的实时镜像，第 2 步的复制源）。" >&2
-  echo "      后端还没订阅到 /map。它是在 slam 之前起的吗？重启后端即可（/map 是 latched，会立刻收到）。" >&2
+  echo "      后端还没订阅到 /map。确认 slam 在跑，或重启后端。" >&2
   exit 1
 fi
-LIVE=$(ros2 topic echo /map --field info --once 2>/dev/null \
-        | awk '/^width:/{w=$2} /^height:/{h=$2} END{print w"x"h}')
-MIRR=$(awk '/^width:/{w=$2} /^height:/{h=$2} END{print w"x"h}' "$MIRROR")
-if [[ -n "$LIVE" && "$LIVE" != "x" && "$LIVE" != "$MIRR" ]]; then
-  echo "错误: 后端的镜像和实时 /map 对不上（镜像 $MIRR，实时 $LIVE）。" >&2
-  echo "      说明后端拿的是上次会话的地图 —— 照它复制会得到一张过期的图。" >&2
-  echo "      重启 app 后端即可（/map 是 latched，重启后会立刻收到当前地图）：" >&2
-  echo "        pkill -f ros_gui_backend && cd ~/ros_flutter_gui && sh ./start.sh" >&2
+MIRROR_AGE=$(( $(date +%s) - $(stat -c %Y "$MIRROR") ))
+if (( MIRROR_AGE > STALE_SEC )); then
+  echo "错误: 后端的镜像 ${MIRROR_AGE}s 没更新了（/map 本该 1Hz 刷新它）。" >&2
+  echo "      后端活着，但收不到 /map。最常见的原因：" >&2
+  echo "        · 仿真：gazebo 挂了 → /clock 停 → slam 定时器不触发（进程还在，但不再发图）" >&2
+  echo "        · 后端订阅的话题不对（gui_app_settings.json 的 MapSubTopic 应为 /map）" >&2
+  echo "      查： ros2 topic hz /map        # 应约 1Hz" >&2
+  echo "      （照陈旧镜像复制会得到一张过期的地图。）" >&2
   exit 1
 fi
 
