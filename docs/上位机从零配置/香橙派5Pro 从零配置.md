@@ -502,7 +502,7 @@ claude --permission-mode plan
 
 > TODO（你来填）：
 >
-> 现行流程在 [docs/workflows/rsync_workflow.md](../workflows/rsync_workflow.md)。需在此补：
+> 现行流程在 [docs/workflows/实机同步与部署.md](../workflows/实机同步与部署.md)。需在此补：
 > - 双向同步还是单向 push？冲突如何处理？
 > - 同步频率（手动 / 文件保存触发）？
 > - 烧录 STM32 的工作流（开发机 → 香橙派 → ST-Link？还是开发机直连 ST-Link）？

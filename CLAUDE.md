@@ -84,6 +84,7 @@ TwistMux: /cmd_vel_keyboard (90) + /cmd_vel_nav (70) → /diff_cont/cmd_vel_unst
 - `src/my_bot_slam/docs/` —— 建图 / 定位 / 存图、建图调参
 - `src/my_bot_nav/docs/` —— Nav2、NeuPAN、多地图与禁行区、调参
 - `docs/APP/` —— 上位机 GUI（ROS_Flutter_Gui_App）集成：后端接口、前端补丁、复现部署
+- `docs/workflows/实机同步与部署.md` —— 开发机 ↔ 开发板（**用 git，不要用 rsync**）、arm64 编译要求
 - `docs/architecture/`、`docs/workflows/` —— 仓库级架构与工作流
 
 > **动代码前先读对应包的 `docs/README.md` 的「不变量」表** —— 那里列的是"违反了就出错、

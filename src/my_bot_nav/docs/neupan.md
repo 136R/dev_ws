@@ -27,12 +27,21 @@ colcon build --packages-up-to neupan_cpp_ros --symlink-install \
 CMakeLists 里没有显式设 PIC，所以 aarch64 上链接期会报
 `relocation R_AARCH64_* ... can not be used when making a shared object`。
 
-> **WSL / x86_64 上实测不加也能编过**（GCC 在 x86_64 上对此更宽松）。
-> 所以这条只在实机上是硬要求 —— 但两边都带上 `--cmake-args` 不会有坏处。
+**已在板子上实测证实**（2026-07）：不加 `--cmake-args` 时链接器直接拒绝 ——
+
+```
+/usr/bin/ld: install/libneupan/lib/libneupan.a(nrmp.cpp.o):
+  relocation R_AARCH64_ADR_PREL_PG_HI21 against symbol ... which may bind externally
+  can not be used when making a shared object; recompile with -fPIC
+```
+
+炸点是 `nrmp.cpp` 里 OsqpEigen / Eigen 的模板实例。
+
+> **WSL / x86_64 上实测不加也能编过**（x86_64 的重定位模型更宽松）。所以这条只在 arm64 上是硬要求，
+> 但两边都带着不会有坏处。
 >
-> 治本的做法是在 `neupan_cpp_ros/CMakeLists.txt` 里加一行
-> `set_property(TARGET neupan PROPERTY POSITION_INDEPENDENT_CODE ON)`，
-> 这样两边都不用记这个参数。**待办。**
+> 治本：在 `libneupan` 的 CMakeLists 里设 `POSITION_INDEPENDENT_CODE ON`，两边都不用再记这个参数。
+> 需要改 fork（`136R/neupan_cpp`）。**待办。**
 
 fork 相对上游多了三块（commit `c428288`）：
 

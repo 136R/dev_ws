@@ -41,6 +41,8 @@ STM32F303 ←─ UART /dev/ttyS7 @115200 ─→ Stm32SerialHardware
 | **雷达波特率是 460800，不是 115200** | `/scan` 无数据 | 思岚 C1 专用；`robot_bringup.launch.py` |
 | **`straight_drive_corrector` 目前是关闭的** | 别以为它在生效 | `robot_bringup.launch.py` 里整段被注释 |
 | **控制器有启动延迟（2.0/2.5/3.0/4.0s）** | 起完 launch 立刻发指令会丢 | `TimerAction` 分级延迟，EKF 等 imu_broad 就绪 |
+| **编译必须带 `--cmake-args -DCMAKE_POSITION_INDEPENDENT_CODE=ON`** | neupan 链接期报 `relocation R_AARCH64_*`，编不过（arm64 特有，x86_64 上侥幸能过） | `libneupan.a` 要链进 controller 插件的动态库 |
+| **`src/gz_ros2_control` 要加 `COLCON_IGNORE`** | 板子没装 Gazebo，它找不到 `ignition-gazebo6` 而失败，**连带整个 build 中止** | 仿真专用包，实机用不上 |
 
 ---
 
@@ -53,3 +55,4 @@ STM32F303 ←─ UART /dev/ttyS7 @115200 ─→ Stm32SerialHardware
 | IMU 加速度计标定 | [imu标定.md](imu标定.md) |
 | 激光雷达过滤链调参 | [激光过滤调参.md](激光过滤调参.md) |
 | STM32 侧（PI 增益、编码器、减速比） | `firmware/my_robot_stm32/Core/Inc/app/robot_config.h` |
+| 开发机 ↔ 开发板怎么同步、怎么从零部署 | [docs/workflows/实机同步与部署.md](../../../docs/workflows/实机同步与部署.md) |
