@@ -1,0 +1,6 @@
+[submodule "src/neupan_cpp"]
+	path = src/neupan_cpp
+	url = https://github.com/136R/neupan_cpp.git
+[submodule "src/gz_ros2_control"]
+	path = src/gz_ros2_control
+	url = https://github.com/ros-controls/gz_ros2_control.git
