@@ -15,6 +15,25 @@ ros2 launch my_bot_nav nav.launch.py use_sim_time:=true controller:=neupan
 新机器上务必 `git clone --recursive`，或 clone 后补 `git submodule update --init`；
 否则 `src/neupan_cpp` 是空目录，`colcon build` 找不到 `neupan_cpp_ros::NeuPANController`。
 
+## 编译（实机 arm64 需要带 PIC）
+
+```bash
+# 实机（香橙派 arm64）—— 必须带 --cmake-args
+colcon build --packages-up-to neupan_cpp_ros --symlink-install \
+  --cmake-args -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+```
+
+`libneupan` 是静态库，要被链进 controller 插件的**动态库**（`add_library(neupan_controller SHARED ...)`）。
+CMakeLists 里没有显式设 PIC，所以 aarch64 上链接期会报
+`relocation R_AARCH64_* ... can not be used when making a shared object`。
+
+> **WSL / x86_64 上实测不加也能编过**（GCC 在 x86_64 上对此更宽松）。
+> 所以这条只在实机上是硬要求 —— 但两边都带上 `--cmake-args` 不会有坏处。
+>
+> 治本的做法是在 `neupan_cpp_ros/CMakeLists.txt` 里加一行
+> `set_property(TARGET neupan PROPERTY POSITION_INDEPENDENT_CODE ON)`，
+> 这样两边都不用记这个参数。**待办。**
+
 fork 相对上游多了三块（commit `c428288`）：
 
 | 改动 | 文件 |
