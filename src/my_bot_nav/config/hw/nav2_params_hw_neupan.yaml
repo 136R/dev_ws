@@ -130,8 +130,7 @@ local_costmap:
       footprint: "[[0.05, 0.126], [0.05, -0.126], [-0.104, -0.126], [-0.104, 0.126]]"
 
       # 阶段4启用 keepout: 把下一行替换为含 keepout_filter 的版本
-      # plugins: ["voxel_layer", "keepout_filter", "inflation_layer"]
-      plugins: ["voxel_layer", "inflation_layer"]
+      plugins: ["voxel_layer", "keepout_filter", "inflation_layer"]
       keepout_filter:
         plugin: "nav2_costmap_2d::KeepoutFilter"
         enabled: True
@@ -180,8 +179,7 @@ global_costmap:
       resolution: 0.05
       track_unknown_space: true
       # 阶段4启用 keepout: 把下一行替换为含 keepout_filter 的版本
-      # plugins: ["static_layer", "obstacle_layer", "keepout_filter", "inflation_layer"]
-      plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
+      plugins: ["static_layer", "obstacle_layer", "keepout_filter", "inflation_layer"]
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
         enabled: True
