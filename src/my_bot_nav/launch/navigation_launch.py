@@ -39,6 +39,7 @@ def generate_launch_description():
     container_name_full = (namespace, "/", container_name)
     use_respawn = LaunchConfiguration("use_respawn")
     log_level = LaunchConfiguration("log_level")
+    goal_pose_topic = LaunchConfiguration("goal_pose_topic")
 
     lifecycle_nodes = [
         "controller_server",
@@ -119,6 +120,14 @@ def generate_launch_description():
         "log_level", default_value="info", description="log level"
     )
 
+    # bt_navigator 订阅的目标话题。默认 goal_pose = 原生行为（RViz / app 直接指挥 Nav2）。
+    # my_bot_task 接管时传 nav2/goal_pose，把 /goal_pose 让给任务层独占。
+    declare_goal_pose_topic_cmd = DeclareLaunchArgument(
+        "goal_pose_topic",
+        default_value="goal_pose",
+        description="bt_navigator 的目标话题；任务层接管时改成 nav2/goal_pose",
+    )
+
     load_nodes = GroupAction(
         condition=IfCondition(PythonExpression(["not ", use_composition])),
         actions=[
@@ -174,7 +183,7 @@ def generate_launch_description():
                 respawn_delay=2.0,
                 parameters=[configured_params],
                 arguments=["--ros-args", "--log-level", log_level],
-                remappings=remappings,
+                remappings=remappings + [("goal_pose", goal_pose_topic)],
             ),
             Node(
                 package="nav2_waypoint_follower",
@@ -251,7 +260,7 @@ def generate_launch_description():
                 plugin="nav2_bt_navigator::BtNavigator",
                 name="bt_navigator",
                 parameters=[configured_params],
-                remappings=remappings,
+                remappings=remappings + [("goal_pose", goal_pose_topic)],
             ),
             ComposableNode(
                 package="nav2_waypoint_follower",
@@ -298,6 +307,7 @@ def generate_launch_description():
     ld.add_action(declare_container_name_cmd)
     ld.add_action(declare_use_respawn_cmd)
     ld.add_action(declare_log_level_cmd)
+    ld.add_action(declare_goal_pose_topic_cmd)
     # Add the actions to launch all of the navigation nodes
     ld.add_action(load_nodes)
     ld.add_action(load_composable_nodes)

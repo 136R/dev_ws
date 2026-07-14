@@ -8,27 +8,6 @@ colcon build --symlink-install --packages-select my_bot # python编译单个功�
 
 colcon build --packages-select my_bot # C++ 编译单个功能包
 
-# 启动gazebo 并加载机器人与场地
-ros2 launch my_bot launch_sim.launch.py
-# slam_toolbox 建图
-ros2 launch my_bot_slam slam.launch.py use_sim_time:=true mode:=mapping
-
-# rviz2
-ros2 run rviz2 rviz2 --ros-args -p use_sim_time:=true
-# 键盘控制
-ros2 run teleop_twist_keyboard teleop_twist_keyboard
-
-# slam_toolbox 加载已知地图定位
-ros2 launch my_bot_slam slam.launch.py use_sim_time:=true mode:=localization
-# nav2
-ros2 launch my_bot navigation_launch.py params_file:=/home/bingda/dev_ws/src/my_bot/config/nav2_params.yaml use_sim_time:=true
-
-# AMCL 定位模式
-ros2 launch nav2_bringup localization_launch.py \ map:=/home/bingda/dev_ws/src/my_bot/config/slam/my_map_save.yaml \ use_sim_time:=true
-# nav2
-ros2 launch my_bot navigation_launch.py \ params_file:=/home/bingda/dev_ws/src/my_bot/config/nav2_params.yaml \ use_sim_time:=true \ map_subscribe_transient_local:=true
-
-
 # rqt可视化调参
 ros2 run rqt_reconfigure rqt_reconfigure
 
@@ -36,9 +15,6 @@ ros2 run rqt_reconfigure rqt_reconfigure
 ros2 run teleop_twist_keyboard teleop_twist_keyboard \
   --ros-args -r cmd_vel:=/cmd_vel_keyboard \
   -p speed:=0.2 -p turn:=0.6
-
-# 里程计查看
-./src/my_bot/python/monitor.py
 
 # 1 启动gazebo
 ros2 launch my_bot launch_sim.launch.py
@@ -52,6 +28,9 @@ ros2 launch my_bot_nav nav.launch.py use_sim_time:=true
 ros2 launch my_bot_nav nav.launch.py use_sim_time:=true controller:=neupan
 # 单独起禁行区流水线（一般不用，nav.launch.py 已包含）
 ros2 launch my_bot_nav keepout.launch.py use_sim_time:=true
+
+# 任务层（包含nav2）
+ros2 launch my_bot_task task.launch.py use_sim_time:=true
 
 # 5 app 后端（浏览器 http://127.0.0.1:8080）—— 详见 docs/APP/速查.md
 cd ~/ros_flutter_gui && sh ./start.sh
@@ -67,10 +46,10 @@ ros2 run teleop_twist_keyboard teleop_twist_keyboard \
   -p speed:=0.2 -p turn:=0.6
 # 6 里程计
 ./src/my_bot/python/monitor.py
-# 7.web
-cd ~/ros_flutter_gui && sh ./start.sh
-cd ~/ros_flutter_gui
-sh ./start.sh
+
+# 查看资源占用
+# 右上 CPU 看算力负载，右下 Proc 看具体是哪些进程在占资源，左上 Mem/Disks 看内存与磁盘，左下 Net 看网络流量，。
+btop
 
 # NeuPAN发布目标
 ros2 launch my_bot_nav neupan.launch.py use_sim_time:=true   config_file:=$(ros2 pkg prefix my_bot_nav)/share/my_bot_nav/config/sim/neupan_sim.yaml   model:=$(ros2 pkg prefix my_bot_nav)/share/my_bot_nav/config/common/neupan/diff_mybot.bin   control_rate:=20.0 replan_rate:=0.0 robot_radius:=0.11 simplify_tolerance:=0.05

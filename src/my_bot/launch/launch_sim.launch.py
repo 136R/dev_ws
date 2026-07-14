@@ -39,7 +39,7 @@ def generate_launch_description():
         default_value=os.path.join(
             get_package_share_directory(package_name),
             "worlds",
-            "my_world_d.sdf",
+            "home_4rooms.sdf",
         ),
         description="World to load",
     )

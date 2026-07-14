@@ -8,6 +8,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **机器人：** 自制差速驱动小车，STM32F303RBT6 MCU 负责底层电机与传感器控制
 - **固件位置：** `firmware/my_robot_stm32/`（STM32CubeIDE 工程，不参与 colcon 构建）
 
+## 🚨 起任何东西之前：先看有没有人已经在跑
+
+ROS 图是全局共享的。第二套 Gazebo / SLAM / Nav2 / app 后端不会"各跑各的"，而是和已有的那套
+抢同一批节点名、话题和 TF（症状：`Detected jump back in time`、lifecycle 卡死、EKF 发散）。
+
+```bash
+pgrep -af "gz sim|slam_toolbox|nav2_|bt_navigator|parameter_bridge|laser_filter|ekf_node|task_manager|ros_gui_backend"
+```
+
+**有输出 = 用户正开着东西 → 停下来问，不要自己起，更不要 `kill`。**
+要清理也只清自己起的那套（记 pid），**禁止 `pkill -9 -f` 无差别扫**。
+
 ## 构建
 
 ```bash

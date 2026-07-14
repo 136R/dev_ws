@@ -1,0 +1,30 @@
+task_manager:
+  ros__parameters:
+    # 地图名。留空 → 读 ~/.maps/current_map（和 slam/keepout 的行为一致）
+    map_name: ""
+
+    # 坐标 → 房间名的就近匹配半径(米)。app 发的是拓扑点自存的 x/y，毫米级精确，
+    # 0.5 绰绰有余。匹配不到的目标（比如 RViz 随手点的）不会被拒绝，
+    # 而是退化成匿名任务"点(1.20, 3.40)"，照样走完整流程。
+    match_radius: 0.5
+
+    # 待命点。优先级: home_pose(非空) > 拓扑里名叫 HOME 的点 > 启动时的 TF 位姿(并 warn)
+    # 注意：用的是【名字约定】而不是拓扑的 type 枚举 —— 见 docs/README.md 的不变量表
+    home_point_name: "HOME"
+    # home_pose: [0.0, 0.0, 0.0]   # 取消注释以覆盖 home_point_name。
+    #   ⚠️ 不要写成 home_pose: [] —— 空列表在 rclpy 里是 NOT_SET，节点会起不来。
+    #   不想用就【整行注释掉】。
+
+    # 到达后停留多久自动归位(秒)。用户也可以在 app 上点「停止导航」提前结束（= 手动完成）
+    dwell_sec: 20.0
+
+    # 单次导航失败的重试次数（总尝试 = nav_retry_max + 1）。绝不无限重试。
+    nav_retry_max: 2
+    retry_backoff_sec: 2.0
+
+    # false → 退化成"纯排队导航"，做完任务原地待命不回家
+    return_home: true
+
+    # 轮询 .topology / current_map 的 mtime，改了就热重载（app 上加完点不用重启节点）
+    poll_period_sec: 2.0
+    settle_sec: 0.5
