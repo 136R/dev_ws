@@ -22,26 +22,29 @@ task.launch.py 把 bt_navigator 的这个订阅 remap 到 /nav2/goal_pose，于�
 app 的「停止导航」按钮发 std_msgs/Empty 到 /goal_pose/cancel。
     WAITING 时收到 cancel = 用户手动点了"完成" → 立刻归位，不用等满 dwell。
 
-【为什么要自己发 /task/nav_status】
-但那个按钮【默认按不到】—— main_page.dart:1021 的可见性条件是
-    navStatus == executing || navStatus == accepted
-而机器人一到达，那次 NavigateToPose 就 succeeded 了，按钮当场消失。
+【为什么要自开一个 HTTP 端口】
+app 后端是【固定 schema 的 protobuf 桥】，消费不了 /task/status 这种自定义类型 ——
+加一个类型要同时改 C++ 后端 + .proto + Dart 生成代码，比改前端还贵。
 
-app 订的是 gui_app_settings.json 的 NavToPoseStatusTopic（可配置）。所以本节点
-自己发一个 GoalStatusArray 到 /task/nav_status，按【任务】的生命周期而不是【单次
-导航】的生命周期来报：只要任务没结束（含 WAITING），就报 EXECUTING。
-把 NavToPoseStatusTopic 指到这里，按钮的含义就正好变成"结束此刻正在做的这件事"
-—— 跟 _on_cancel 的语义严丝合缝，而 Flutter 一行都不用改。
+所以本节点自己开一个 HTTP 口（默认 :8090），前端 1Hz 轮询：
+    GET  /task/status  → 当前状态 JSON（state / current / queue / dwell_remaining）
+    POST /task/skip    → "我倒完了" = 跳过等待（等价于发 /goal_pose/cancel）
+    POST /task/cancel_all → 清空队列
+
+前端拿到 state 才知道现在是不是 WAITING，才能【只在等待时】显示那个
+「我倒完了，回去吧」按钮 —— 语义唯一，不跟「停止导航」混。
 """
 
 import json
 import math
 import os
+import threading
 from collections import deque
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import rclpy
 import tf2_ros
-from action_msgs.msg import GoalStatus, GoalStatusArray
+from action_msgs.msg import GoalStatus
 from geometry_msgs.msg import PoseStamped
 from nav2_msgs.action import NavigateToPose
 from rclpy.action import ActionClient
@@ -57,16 +60,6 @@ NAVIGATING = 'NAVIGATING'
 WAITING = 'WAITING'
 RETURNING = 'RETURNING'
 STOPPED = 'STOPPED'
-
-# 任务状态 → 报给 app 的 GoalStatus。EXECUTING 让「停止导航」按钮可见。
-# 注意 WAITING 也报 EXECUTING —— 那正是"我倒完了，回去吧"这个按钮存在的意义。
-TASK_TO_GOAL_STATUS = {
-    NAVIGATING: GoalStatus.STATUS_EXECUTING,
-    WAITING: GoalStatus.STATUS_EXECUTING,
-    RETURNING: GoalStatus.STATUS_EXECUTING,
-    IDLE: GoalStatus.STATUS_SUCCEEDED,      # 按钮隐藏
-    STOPPED: GoalStatus.STATUS_ABORTED,     # 按钮隐藏
-}
 
 
 def resolve_map_name(explicit: str) -> str:
@@ -90,6 +83,49 @@ def yaw_from_quat(q) -> float:
                       1.0 - 2.0 * (q.y * q.y + q.z * q.z))
 
 
+class _TaskHttpHandler(BaseHTTPRequestHandler):
+    """给 app 前端用的极简 HTTP 接口。
+
+    ⚠️ 这些回调跑在【HTTP 线程】，不是 rclpy 的 executor 线程。
+    所以绝不在这里直接调节点的方法（那会和 spin 里的回调抢状态机）——
+    只往 node.pending_cmds 里塞一个字符串，由节点自己的 timer 排空。
+    """
+
+    server_version = 'my_bot_task'
+
+    def _send(self, code, body=b'', ctype='application/json'):
+        self.send_response(code)
+        self.send_header('Content-Type', ctype)
+        self.send_header('Content-Length', str(len(body)))
+        # Flutter Web 是从后端的 :8080 加载的，打本节点的 :8090 属于跨域
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', '*')
+        self.end_headers()
+        if body:
+            self.wfile.write(body)
+
+    def do_OPTIONS(self):          # noqa: N802 - BaseHTTPRequestHandler 的命名约定
+        self._send(204)
+
+    def do_GET(self):              # noqa: N802
+        if self.path.split('?')[0] == '/task/status':
+            self._send(200, self.server.node.status_json.encode('utf-8'))
+        else:
+            self._send(404, b'{"error":"not found"}')
+
+    def do_POST(self):             # noqa: N802
+        path = self.path.split('?')[0]
+        if path in ('/task/skip', '/task/cancel_all'):
+            self.server.node.pending_cmds.append(path)
+            self._send(200, b'{"ok":true}')
+        else:
+            self._send(404, b'{"error":"not found"}')
+
+    def log_message(self, *_args):
+        pass                       # 别把每个轮询请求都打到 ROS 日志里
+
+
 class TaskManager(Node):
     def __init__(self):
         super().__init__('task_manager')
@@ -106,6 +142,11 @@ class TaskManager(Node):
         self.declare_parameter('return_home', True)
         self.declare_parameter('poll_period_sec', 2.0)
         self.declare_parameter('settle_sec', 0.5)
+        self.declare_parameter('http_port', 8090)
+        # ETA = 剩余路径长度 ÷ 这个速度。不用 Nav2 自己的 estimated_time_remaining ——
+        # 它是"剩余距离 ÷ 当前瞬时线速度"，机器人一转弯/过门减速就炸到几百秒再跳回来。
+        # 默认 0.2 < NeuPAN 的 ref_speed 0.3，因为过门和转弯会拉低实际均速。按实测调。
+        self.declare_parameter('eta_speed_mps', 0.2)
 
         self.match_radius = float(self.get_parameter('match_radius').value)
         self.home_point_name = str(self.get_parameter('home_point_name').value)
@@ -113,6 +154,7 @@ class TaskManager(Node):
         self.nav_retry_max = int(self.get_parameter('nav_retry_max').value)
         self.retry_backoff = float(self.get_parameter('retry_backoff_sec').value)
         self.return_home = bool(self.get_parameter('return_home').value)
+        self.eta_speed = max(0.01, float(self.get_parameter('eta_speed_mps').value))
 
         try:
             home_pose = list(self.get_parameter('home_pose').value or [])
@@ -145,6 +187,15 @@ class TaskManager(Node):
         self.retry_timer = None
         self.tf_home = None           # TF 兜底抓到的待命点
 
+        # 来自 Nav2 feedback（只信 distance_remaining，ETA 自己算，见 _on_feedback）
+        self.distance_remaining = 0.0
+        self.eta_sec = 0.0
+
+        # HTTP 线程 ↔ ROS 线程之间只靠这两个：一个只读的快照，一个只写的命令队列。
+        # deque 的 append/popleft 在 CPython 里是原子的，够用了，不用上锁。
+        self.status_json = '{}'
+        self.pending_cmds = deque()
+
         # 拓扑热重载（app 上加完点保存，不用重启本节点）
         self.topology_path = ''
         self.seen_mtime = 0.0
@@ -162,11 +213,6 @@ class TaskManager(Node):
                              reliability=ReliabilityPolicy.RELIABLE)
         self.status_pub = self.create_publisher(String, '/task/status', latched)
 
-        # 给 app 的「停止导航」按钮用。把 gui_app_settings.json 的
-        # NavToPoseStatusTopic 指到这里，按钮才会在 WAITING 时显示（见模块开头说明）。
-        self.nav_status_pub = self.create_publisher(
-            GoalStatusArray, '/task/nav_status', latched)
-
         self.create_subscription(PoseStamped, '/goal_pose', self._on_goal, 10)
         self.create_subscription(Empty, '/goal_pose/cancel', self._on_cancel, 10)
         self.create_subscription(Empty, '/task/cancel_all', self._on_cancel_all, 10)
@@ -175,11 +221,41 @@ class TaskManager(Node):
         self.settle = float(self.get_parameter('settle_sec').value)
         self.create_timer(poll, self._poll_topology)
         self.create_timer(1.0, self._publish_status)   # 让 dwell_remaining 能倒数
+        self.create_timer(0.2, self._drain_http_cmds)  # 排空 HTTP 线程塞进来的命令
 
         self._reload_topology()
         self._publish_status()
+        self._start_http()
         self.get_logger().info(
             f'任务层就绪：dwell={self.dwell_sec}s, return_home={self.return_home}')
+
+    # ================= 给 app 前端的 HTTP 口 =================
+
+    def _start_http(self):
+        port = int(self.get_parameter('http_port').value)
+        try:
+            self.httpd = ThreadingHTTPServer(('0.0.0.0', port), _TaskHttpHandler)
+        except OSError as exc:
+            self.httpd = None
+            self.get_logger().error(
+                f'HTTP :{port} 起不来（{exc}）—— app 上的任务卡会一直空白。'
+                f'多半是端口被占，或上一个 task_manager 没退干净')
+            return
+        self.httpd.node = self
+        self.http_thread = threading.Thread(target=self.httpd.serve_forever,
+                                            daemon=True)
+        self.http_thread.start()
+        self.get_logger().info(f'HTTP 已监听 :{port} —— GET /task/status')
+
+    def _drain_http_cmds(self):
+        """把 HTTP 线程塞进来的命令拿到 ROS 线程里执行（状态机只在这一个线程动）。"""
+        while self.pending_cmds:
+            cmd = self.pending_cmds.popleft()
+            if cmd == '/task/skip':
+                self.get_logger().info('app 点了「我倒完了」')
+                self._on_cancel(Empty())
+            elif cmd == '/task/cancel_all':
+                self._on_cancel_all(Empty())
 
     # ================= 拓扑点 =================
 
@@ -380,6 +456,8 @@ class TaskManager(Node):
     def _goto(self, task, kind):
         self.current = task
         self.active_kind = kind
+        self.distance_remaining = 0.0
+        self.eta_sec = 0.0            # 新目标 → ETA 重新起算，别用上一段的平滑值
         self._enter(RETURNING if kind == 'home' else NAVIGATING)
         self._send_nav_goal(task)
 
@@ -388,6 +466,9 @@ class TaskManager(Node):
             self.current = None
             self.active_kind = None
             self.goal_handle = None
+        if state in (IDLE, STOPPED, WAITING):
+            self.distance_remaining = 0.0
+            self.eta_sec = 0.0
         self.state = state
         self._publish_status()
 
@@ -415,7 +496,25 @@ class TaskManager(Node):
         self.get_logger().info(
             f'{"归位 →" if self.active_kind == "home" else "前往"}「{task["name"]}」'
             f'({task["x"]:.2f}, {task["y"]:.2f})')
-        self.nav.send_goal_async(goal).add_done_callback(self._on_accepted)
+        self.nav.send_goal_async(
+            goal, feedback_callback=self._on_feedback
+        ).add_done_callback(self._on_accepted)
+
+    def _on_feedback(self, msg):
+        """Nav2 的导航反馈 → 剩余距离与 ETA。
+
+        ⚠️ 刻意【不用】feedback 里的 estimated_time_remaining：Nav2 算的是
+        "剩余距离 ÷ 当前瞬时线速度"，机器人一转弯/过门减速，线速度趋近 0，
+        那个值就炸到几百秒再跳回来 —— 显示出来像坏了。
+
+        distance_remaining 是剩余【路径长度】，很稳，只用它；ETA 自己按
+        eta_speed_mps 折算，再做一次指数平滑，免得随路径重规划抖动。
+        """
+        fb = msg.feedback
+        self.distance_remaining = float(fb.distance_remaining)
+        raw = self.distance_remaining / self.eta_speed
+        # 首帧直接取值，之后 EMA。系数 0.3：够跟手，又不会一抖一跳
+        self.eta_sec = raw if self.eta_sec <= 0.0 else 0.7 * self.eta_sec + 0.3 * raw
 
     def _on_accepted(self, future):
         try:
@@ -501,6 +600,9 @@ class TaskManager(Node):
 
     def _start_dwell(self):
         self._clear_dwell()
+        # 每次进等待都【重新读】参数，而不是用 __init__ 里缓存的值 ——
+        # 这样 `ros2 param set /task_manager dwell_sec 180.0` 能当场生效，调参不用重启。
+        self.dwell_sec = float(self.get_parameter('dwell_sec').value)
         self.dwell_deadline = self.get_clock().now().nanoseconds * 1e-9 + self.dwell_sec
         # Humble 的 rclpy 没有一次性 timer，回调里自己销毁
         self.dwell_timer = self.create_timer(self.dwell_sec, self._on_dwell_done)
@@ -525,24 +627,29 @@ class TaskManager(Node):
             now = self.get_clock().now().nanoseconds * 1e-9
             remaining = max(0.0, self.dwell_deadline - now)
 
-        msg = String()
-        msg.data = json.dumps({
+        self.status_json = json.dumps({
             'state': self.state,
             'current': self.current,
             'queue': [t['name'] for t in self.queue],
             'queue_len': len(self.queue),
             'dwell_remaining': round(remaining, 1),
+            # 前端会同时显示这两个：distance 是 Nav2 给的真实路径长度，eta 是我们
+            # 折算的估计值。ETA 不准时看 distance 就能分清"估歪了"还是"真卡住了"。
+            'distance_remaining': round(self.distance_remaining, 2),
+            'eta_sec': round(self.eta_sec, 1),
             'last_error': self.last_error,
             'stamp': round(self.get_clock().now().nanoseconds * 1e-9, 3),
         }, ensure_ascii=False)
+
+        msg = String()
+        msg.data = self.status_json    # HTTP 线程读的也是这一份快照
         self.status_pub.publish(msg)
 
-        arr = GoalStatusArray()
-        gs = GoalStatus()
-        gs.status = TASK_TO_GOAL_STATUS[self.state]
-        gs.goal_info.stamp = self.get_clock().now().to_msg()
-        arr.status_list = [gs]           # app 取 status_list.last
-        self.nav_status_pub.publish(arr)
+    def destroy_node(self):
+        if getattr(self, 'httpd', None) is not None:
+            self.httpd.shutdown()
+            self.httpd.server_close()
+        super().destroy_node()
 
 
 def main():

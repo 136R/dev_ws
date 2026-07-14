@@ -28,3 +28,15 @@ task_manager:
     # 轮询 .topology / current_map 的 mtime，改了就热重载（app 上加完点不用重启节点）
     poll_period_sec: 2.0
     settle_sec: 0.5
+
+    # 给 app 前端的 HTTP 口（GET /task/status, POST /task/skip）。
+    # app 后端占了 8080，且它是【固定 schema 的 protobuf 桥】，消费不了自定义类型 ——
+    # 所以任务层自己开一个口，前端 1Hz 轮询。
+    http_port: 8090
+
+    # ETA = 剩余路径长度 ÷ 这个速度。
+    # 不用 Nav2 自己的 estimated_time_remaining —— 它是"剩余距离 ÷ 当前瞬时线速度"，
+    # 转弯/过门减速时会炸到几百秒再跳回来。
+    # 默认 0.2 < NeuPAN 的 ref_speed 0.3，因为过门和转弯拉低了实际均速。按实测调：
+    #   实测均速 = 路径长度 / 实际耗时
+    eta_speed_mps: 0.2

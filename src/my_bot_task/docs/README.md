@@ -44,6 +44,7 @@ app 点拓扑点 ──> 后端发 /goal_pose ──> task_manager（独占订�
 | **`/goal_pose` 的订阅者只能有 `task_manager`** | remap 没生效 → 任务层和 Nav2 **各收一份目标**：机器人跑过去了，但不等待、不归位，行为诡异且极难查。**用 `ros2 topic info /goal_pose --verbose` 硬性检查** | `task.launch.py` 传 `goal_pose_topic:=nav2/goal_pose` |
 | **仿真必须传 `use_sim_time:=true`** | dwell 走墙钟 —— Gazebo 实时因子不是 1 时，"等 2 分钟"就不是 2 分钟 | `task.launch.py` 把它塞进节点 `parameters` |
 | **任务层的参数文件参数叫 `task_params_file`，绝不能叫 `params_file`** | `IncludeLaunchDescription` **不隔离 LaunchConfiguration 作用域** —— 子 launch（`nav.launch.py`）会继承父作用域的同名配置，而它自己的 `DeclareLaunchArgument` 默认值**不会覆盖已被设置的值**。于是 Nav2 把任务参数当成 nav2_params 加载 → `controller_server` 报 `No critics defined for FollowPath` → **整个 bringup 中止**。（实测踩过） | `task.launch.py` |
+| **`task_params_file:=` 指到一个【不存在】的文件时，launch_ros 会静默忽略它** | 整个 yaml 都不加载 → 节点全用代码里的 `declare_parameter` 默认值，**没有任何报错**。症状：改了 `task_params.yaml` 的 `dwell_sec` 却不生效。**排查：`ros2 param get /task_manager dwell_sec` 和 yaml 对不上，就是它。**（实测踩过） | launch_ros 行为 |
 | **`scripts/*.py` 必须有可执行位（755）** | `--symlink-install` 把 install 目录软链回源文件，源文件没 `+x` → `ros2 run` 报 `No executable found` | 仓库现有脚本都是 755 |
 | **`home_pose` 不配就【整行注释掉】，不要写成 `[]`** | 空列表在 rclpy 里推断成 `NOT_SET` → 节点启动时抛 `ParameterUninitializedException` 直接崩 | `task_params.yaml` |
 | **待命点靠【名字】约定（`HOME`），不是拓扑的 `type` 字段** | 想当然去用 `type: ChargeStation` → app 的 Dart 侧写 `'ChargeStation'`、C++ 后端认 `'ChargingStation'`，**两边字符串对不上**，存盘往返会静默退化成 `NavGoal`（上游 bug，两侧的未知值 fallback 都不报错） | `nav_point.dart:52` vs `topology_map.hpp:18` |
@@ -54,37 +55,66 @@ app 点拓扑点 ──> 后端发 /goal_pose ──> task_manager（独占订�
 
 ---
 
-## `/goal_pose/cancel` = 「我倒完了」
+## 两个端口的关系（**别搞混**）
 
-app 的「停止导航」按钮发 `std_msgs/Empty` 到 `/goal_pose/cancel`。
+**你永远只访问 `:8080`。** `:8090` 不是"换了个端口"，是**多开了一个**，网页在后台自己调。
 
-### ⚠️ 但那个按钮默认【按不到】—— 所以有了 `/task/nav_status`
-
-[`main_page.dart:1021`](../../../../ROS_Flutter_Gui_App/app/lib/page/main_page.dart#L1021) 的可见性条件是：
-
-```dart
-visible: navStatus == ActionStatus.executing || navStatus == ActionStatus.accepted,
+```
+浏览器
+  │
+  ├─ 打开 http://<ip>:8080  ────────► ros_gui_backend (C++)
+  │   网页本身、地图瓦片、激光、          ↑ 原样未动
+  │   机器人位姿、发导航目标…
+  │
+  └─ 网页加载后，其 JS 每秒后台 fetch
+      http://<ip>:8090/task/status ──► task_manager (本包)
+      只为拿任务卡的数据                  ↑ 新开的
 ```
 
-机器人**一到达**，那次 `NavigateToPose` 就 `succeeded` 了 → **按钮当场消失**，
-用户根本点不到「我倒完了」。
+**降级行为**：任务层没起 / `:8090` 不通 → 网页照常打开、地图照常显示，**只是底部那张
+任务卡不出现**。不报错、不白屏。（`task_channel.dart` 里 catch 掉了，故意静默。）
 
-而 app 订的是 `gui_app_settings.json` 里的 `NavToPoseStatusTopic`（**可配置**）。
-所以本节点自己发一个 `action_msgs/GoalStatusArray` 到 **`/task/nav_status`**，
-按**任务**的生命周期而不是**单次导航**的生命周期来报：
+## HTTP 口（:8090）—— 给 app 前端的
 
-| 任务状态 | 上报 | 按钮 | 用户看到的含义 |
-| --- | --- | --- | --- |
-| `NAVIGATING` | `EXECUTING` | 显示 | 取消这次召唤 |
-| **`WAITING`** | **`EXECUTING`** | **显示** | **「我倒完了，回去吧」** |
-| `RETURNING` | `EXECUTING` | 显示 | 停下 |
-| `IDLE` / `STOPPED` | `SUCCEEDED` / `ABORTED` | 隐藏 | 没事干 |
+app 后端是**固定 schema 的 protobuf 桥**，只推激光/地图/里程计那几种消息，
+**消费不了 `/task/status` 这种自定义类型**（加一个类型要同时改 C++ 后端 + `.proto`
++ Dart 生成代码，比直接 HTTP 贵得多）。
 
-于是按钮的含义**恰好就是下面这张表的语义**，而 **Flutter 一行都不用改**。
+所以任务层**自己开一个 HTTP 口**，前端 1Hz 轮询。召唤是低频离散动作，不需要 WebSocket。
 
-> 副作用：app 上那行状态文字在等待时会显示 `executing`。这是对的 —— 任务确实在进行中。
+| 路由 | 方法 | 用途 |
+| --- | --- | --- |
+| `/task/status` | GET | 当前状态 JSON（见下） |
+| `/task/skip` | POST | **「我倒完了」** = 跳过等待，立刻归位 |
+| `/task/cancel_all` | POST | 清空队列 |
 
-### cancel 语义
+CORS 全放行 —— Flutter Web 是从后端的 `:8080` 加载的，打 `:8090` 属于跨域。
+
+> **线程安全**：HTTP handler 跑在**独立线程**，绝不直接调节点方法（会和 spin 里的
+> 回调抢状态机）。它只往 `pending_cmds` 里塞一个字符串，由节点自己的 timer 排空 ——
+> **状态机永远只在 ROS 线程里动**。
+
+前端对应的代码：`app/lib/provider/task_channel.dart`、`app/lib/page/task_card.dart`。
+
+---
+
+## 「我倒完了」按钮为什么是独立的
+
+app 原有的「停止导航」按钮（左下角）**只在导航中出现**（`main_page.dart:1021` 的可见性
+条件是 `navStatus == executing || accepted`）—— 机器人一到达，那次 `NavigateToPose`
+就 `succeeded` 了，**按钮当场消失**。所以它天然按不到"跳过等待"。
+
+> 曾经试过把 `NavToPoseStatusTopic` 指到一个自造的话题上，让那个按钮在 WAITING 时
+> 也显示。能跑，但**一个按钮被塞了三种含义**（取消导航 / 跳过等待 / 停止归位），
+> 用户分不清此刻按下去是什么意思。已废弃 —— 现在按钮语义各自唯一：
+>
+> - **左下角「停止导航」** = 取消当前导航（只在导航中出现，恢复上游原义）
+> - **底部任务卡的「我倒完了」** = 跳过等待（只在 WAITING 时出现）
+
+## cancel 语义
+
+`/goal_pose/cancel`（app「停止导航」）和 `/task/skip`（任务卡「我倒完了」）
+**走的是同一套逻辑**：
 
 **统一规则：cancel = 结束此刻正在做的这件事，然后往下走。不清空队列。**
 
