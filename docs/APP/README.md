@@ -49,6 +49,8 @@ ros_gui_backend  (C++, 部署在 ~/ros_flutter_gui/)   ← 不参与 colcon 构�
 | **cache-buster 只能放 URL、不能放 `key`** | 放 key → 整图闪烁；URL 不放 → 画笔保存后不刷新 | `tile_map.dart` 的 `TileLayer`，见[架构与接口](架构与接口.md#3-cache-buster-只能放-url不能放-key) |
 | **配置字段不能带首尾空格** | app 不 trim → TF 查找静默失败 | `gui_app_settings.json` |
 | **`gui_app_settings.json` 覆盖 `cfg/config.yaml`** | 改了 yaml 却不生效 | 后端以 `--config-json` 加载 |
+| **后端只在地图内容【真的变了】时才重写 `~/.maps/map/`** | 别再拿镜像的 mtime 当"slam 还活着"的信号 —— 机器人静止时它本来就不动。`save_map.sh` 曾经这么干，结果"建完图停下来过 30 秒再存图"会被误判成失败 | 我们 fork 的 commit `63e4556`。上游原版是**每秒**无条件重写（1365 张瓦片、约 476 GB/天，会写坏 SD 卡） |
+| **不能用自己编的 dist/ 配上游的后端二进制（或反过来）** | 用上游的预编译后端 → 丢掉上面那个修复，写入量回到 476 GB/天 | 后端已分叉，见 [复现与部署.md](复现与部署.md) |
 
 ---
 
