@@ -56,29 +56,36 @@ if ! grep -q "Publisher count: [1-9]" <<< "$MAP_INFO"; then
   exit 1
 fi
 
-# 3) 后端必须正在持续镜像 /map。
-#    ~/.maps/map/ 是第 2 步的复制源，由后端订阅 /map 后写入。
-#    slam 按 map_update_interval（sim/hw 均为 1.0s）定时重建并发布 /map，
-#    机器人静止时照发不误，所以后端的镜像应当一直是新鲜的（实测年龄 ~1s）。
-#
-#    镜像陈旧 = 后端收不到 /map。最典型的一种：仿真里 gazebo 挂了但 slam 进程还活着 ——
-#    use_sim_time 下 /clock 停摆、ROS 定时器永不触发，slam 不再发 /map。
-#    这种情况下 /map 仍然【有发布者】，所以上面第 2 条查不出来，只有 mtime 能抓到。
+# 3) 后端的镜像必须存在（它是第 2 步的复制源）。
 MIRROR="$MAPS_ROOT/map/map.yaml"
-STALE_SEC=30           # /map 是 1Hz，30s 留了 30 倍余量
 if [[ ! -f "$MIRROR" ]]; then
   echo "错误: 找不到 $MIRROR（app 后端的实时镜像，第 2 步的复制源）。" >&2
   echo "      后端还没订阅到 /map。确认 slam 在跑，或重启后端。" >&2
   exit 1
 fi
-MIRROR_AGE=$(( $(date +%s) - $(stat -c %Y "$MIRROR") ))
-if (( MIRROR_AGE > STALE_SEC )); then
-  echo "错误: 后端的镜像 ${MIRROR_AGE}s 没更新了（/map 本该 1Hz 刷新它）。" >&2
-  echo "      后端活着，但收不到 /map。最常见的原因：" >&2
-  echo "        · 仿真：gazebo 挂了 → /clock 停 → slam 定时器不触发（进程还在，但不再发图）" >&2
-  echo "        · 后端订阅的话题不对（gui_app_settings.json 的 MapSubTopic 应为 /map）" >&2
+
+# 4) slam 必须还在【持续发布】 /map —— 而不只是"有发布者"。
+#
+#    要抓的故障：仿真里 gazebo 挂了但 slam 进程还活着 —— use_sim_time 下 /clock 停摆、
+#    ROS 定时器永不触发，slam 不再发图。这时 /map 仍然【有发布者】，第 2 条查不出来。
+#
+#    ⚠️ 【不能】再用 ~/.maps/map/ 的 mtime 来判断了（这里曾经是那么做的）：
+#    我们的后端 fork 在地图内容没变时会跳过重写（否则每秒重生成 1365 张瓦片、约 476 GB/天，
+#    会写坏机器人的 SD 卡）。所以机器人静止时镜像 mtime 本来就不会动 —— 那是正确行为，
+#    不是故障。照旧判断的话，"建完图停下来、过 30 秒再存图"会被误判成失败。
+#
+#    也【不能】用 `ros2 topic echo /map --once`：/map 是 latched(transient_local) 的，
+#    哪怕 slam 早就停了，照样能拿到锁存的旧消息 —— 证明不了活性。
+#
+#    只有实测发布频率能证明它还活着。
+#    （不用管道接 grep：ros2 收到 SIGPIPE 会非零退出，在 pipefail 下反而把成功判成失败，
+#      同第 2 条的教训。先落到变量里再匹配。）
+HZ_OUT=$(timeout 8 ros2 topic hz /map --window 2 2>/dev/null || true)
+if ! grep -q "average rate" <<< "$HZ_OUT"; then
+  echo "错误: /map 有发布者，但 8 秒内一条新消息都没发出来 —— slam 卡住了。" >&2
+  echo "      最常见：仿真里 gazebo 挂了 → /clock 停 → slam 定时器不触发（进程还在，但不再发图）。" >&2
+  echo "      其次：后端订阅的话题不对（gui_app_settings.json 的 MapSubTopic 应为 /map）。" >&2
   echo "      查： ros2 topic hz /map        # 应约 1Hz" >&2
-  echo "      （照陈旧镜像复制会得到一张过期的地图。）" >&2
   exit 1
 fi
 
