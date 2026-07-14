@@ -25,7 +25,7 @@ ros_gui_backend  (C++, 部署在 ~/ros_flutter_gui/)   ← 不参与 colcon 构�
 
 - **app 源码**：`~/ROS_Flutter_Gui_App` —— 我们的 fork
   [136R/ROS_Flutter_Gui_App](https://github.com/136R/ROS_Flutter_Gui_App)（remote 名 `fork`；
-  `origin` 仍指上游，用来拉更新）
+  `origin` 仍指上游，只是留着，平时不用碰）
 - **app 部署**：`~/ros_flutter_gui` —— **不是 git 仓库**。只有 `dist/`（Flutter web 产物）和
   `ros_gui_backend`（C++ 可执行文件）是编译出来的，其余（`gui_app_settings.json`、`cfg/`、
   `start.sh`、`uploads/`）是这台机器的运行时配置，不在源码仓库里。
@@ -59,8 +59,7 @@ ros_gui_backend  (C++, 部署在 ~/ros_flutter_gui/)   ← 不参与 colcon 构�
 | 理解后端有哪些接口、`~/.maps` 的契约、为什么这么设计 | [架构与接口.md](架构与接口.md) |
 | 重装/换机/实机 arm64，从零把 app 跑起来 | [复现与部署.md](复现与部署.md) |
 | 日常命令（启动、存图、切图、画笔生效） | [速查.md](速查.md) |
-| 改前端、重新编译部署 | [复现与部署.md](复现与部署.md#改前端日常) |
-| 拉上游更新（可选，按需） | [复现与部署.md](复现与部署.md#拉上游更新可选按需) |
+| 改前端、重新编译部署 | [复现与部署.md](复现与部署.md#改前端) |
 | **任务层（召唤 → 上门 → 等待 → 归位）和底部任务卡** | [my_bot_task/docs/](../../src/my_bot_task/docs/) |
 
 ## 不归本目录管
