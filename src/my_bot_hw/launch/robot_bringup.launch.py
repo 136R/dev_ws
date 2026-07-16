@@ -182,6 +182,10 @@ def generate_launch_description():
         executable='ekf_node',
         name='ekf_filter_node',
         output='screen',
+        # 只兜底"进程退出"（崩溃/异常），不解决"进程还活着但已经发散成 NaN"——
+        # 那种静默发散需要看协方差/位姿跳变才能发现，respawn 逮不到。
+        respawn=True,
+        respawn_delay=2.0,
         parameters=[
             os.path.join(pkg_hw, 'config', 'ekf_hw.yaml'),
             {'use_sim_time': use_sim_time},

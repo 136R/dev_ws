@@ -18,6 +18,7 @@ import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
@@ -53,6 +54,12 @@ def generate_launch_description():
             'task_params_file',
             default_value=os.path.join(pkg_task, 'config', 'task_params.yaml'),
             description='任务层参数文件'),
+        DeclareLaunchArgument(
+            'use_watchdog', default_value='true',
+            description='是否起导航卡死看门狗。兜底 controller_server/bt_navigator '
+                        '整个挂起、Nav2 不返回任何终止状态导致任务永远卡在 '
+                        'NAVIGATING/RETURNING 的情况 —— task_manager 自己的重试只在 '
+                        'Nav2 明确回 ABORTED/CANCELED 时才触发，接不住这种"挂起不报错"'),
 
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
@@ -71,6 +78,21 @@ def generate_launch_description():
             executable='task_manager.py',
             name='task_manager',
             output='screen',
+            # 任务层是单点 —— 挂了整条业务闭环就没了。它启动时会自己重读拓扑文件，
+            # 重启是安全的，所以直接 respawn。
+            respawn=True,
+            respawn_delay=2.0,
             parameters=[task_params_file, {'use_sim_time': use_sim_time}],
+        ),
+
+        Node(
+            package='my_bot_task',
+            executable='nav_watchdog.py',
+            name='nav_watchdog',
+            output='screen',
+            respawn=True,
+            respawn_delay=2.0,
+            parameters=[task_params_file, {'use_sim_time': use_sim_time}],
+            condition=IfCondition(LaunchConfiguration('use_watchdog')),
         ),
     ])

@@ -21,34 +21,26 @@ ros2 launch my_bot launch_sim.launch.py
 # 2 slam（localization 的地图取自 ~/.maps/current_map，可用 map:=<名字> 覆盖）
 ros2 launch my_bot_slam slam.launch.py use_sim_time:=true mode:=mapping
 ros2 launch my_bot_slam slam.launch.py use_sim_time:=true mode:=localization
+# 建完图后存成一张新地图（名字不能叫 map）
+~/dev_ws/src/my_bot_slam/scripts/save_map.sh <地图名>
 # 3 rviz2
 ros2 run rviz2 rviz2 --ros-args -p use_sim_time:=true
-# 4 nav2（已内含 keepout 禁行区；keepout:=false 可关掉）
+# 4 nav2
 ros2 launch my_bot_nav nav.launch.py use_sim_time:=true
 ros2 launch my_bot_nav nav.launch.py use_sim_time:=true controller:=neupan
 # 单独起禁行区流水线（一般不用，nav.launch.py 已包含）
 ros2 launch my_bot_nav keepout.launch.py use_sim_time:=true
-
 # 任务层（包含nav2）
 ros2 launch my_bot_task task.launch.py use_sim_time:=true
 
 # 5 app 后端（浏览器 http://127.0.0.1:8080）—— 详见 docs/APP/速查.md
 cd ~/ros_flutter_gui && sh ./start.sh
-# 建完图后存成一张新地图（名字不能叫 map）
-~/dev_ws/src/my_bot_slam/scripts/save_map.sh <地图名>
-# 画笔改了禁行区、又不想重启 nav2：热加载掩码
-ros2 service call /filter_mask_server/load_map nav2_msgs/srv/LoadMap \
-  "{map_url: '$HOME/.maps/my_map/my_map.yaml'}"
 
-# 5 键盘控制
-ros2 run teleop_twist_keyboard teleop_twist_keyboard \
-  --ros-args -r cmd_vel:=/cmd_vel_keyboard \
-  -p speed:=0.2 -p turn:=0.6
 # 6 里程计
 ./src/my_bot/python/monitor.py
 
 # 查看资源占用
-# 右上 CPU 看算力负载，右下 Proc 看具体是哪些进程在占资源，左上 Mem/Disks 看内存与磁盘，左下 Net 看网络流量，。
+# 右上 CPU 看算力负载，右下 Proc 看具体是哪些进程在占资源，左上 Mem/Disks 看内存与磁盘，左下 Net 看网络流量
 btop
 
 # NeuPAN发布目标

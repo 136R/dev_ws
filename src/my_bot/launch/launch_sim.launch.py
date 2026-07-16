@@ -39,7 +39,7 @@ def generate_launch_description():
         default_value=os.path.join(
             get_package_share_directory(package_name),
             "worlds",
-            "home_4rooms.sdf",
+            "home_4rooms_dynamic.sdf",
         ),
         description="World to load",
     )
@@ -127,6 +127,10 @@ def generate_launch_description():
         package="robot_localization",
         executable="ekf_node",
         name="ekf_filter_node",
+        # 只兜底"进程退出"（崩溃/异常），不解决"进程还活着但已经发散成 NaN"——
+        # 那种静默发散需要看协方差/位姿跳变才能发现，respawn 逮不到。
+        respawn=True,
+        respawn_delay=2.0,
         parameters=[ekf_params],
     )
 

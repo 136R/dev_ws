@@ -1,0 +1,853 @@
+<?xml version="1.0"?>
+<!--
+  home_4rooms 的动态变体 —— 静态几何（墙体/家具/门洞）与 home_4rooms.sdf 逐字节相同，
+  只加了 5 个 Gazebo <actor> 行人，对应"6~10 人办公室"的人流密度，覆盖三类场景：
+    - 走廊交叉：corridor_walker_a / corridor_walker_b 沿走廊长轴对向往返
+    - 房间门口拦截：doorway_kitchen / doorway_storage 在门洞内外来回穿行
+    - 多人同时出现：hallway_diagonal 斜穿走廊，与上面两类的活动区间有重叠
+  world name 刻意保持 "default"（不能叫别的）—— gz_bridge.yaml 里
+  /world_poses 硬编码订阅 /world/default/pose/info，改名会导致该桥接静默失效
+  （对应 docs/速查.md 的不变量："Gazebo 世界名是 default，不是文件名"）。
+
+  home_4rooms.sdf 本身不改 —— 它是文档入口 / 回归基线，动态障碍是本文件独有的。
+  用法同 home_4rooms.sdf，只是换个 world 路径：
+      ros2 launch my_bot launch_sim.launch.py \
+        world:=$HOME/dev_ws/src/my_bot/worlds/home_4rooms_dynamic.sdf
+  地图/拓扑复用 home_4rooms.sdf 那份（静态几何没变，SLAM 定位不受影响）。
+
+  ==================== 以下为原 home_4rooms.sdf 的说明，原样保留 ====================
+
+  多房间户型：移动垃圾桶"召唤上门"的仿真场地。
+
+  ⚠️ 这里每个数字都是被 4 米激光量程反推出来的。
+  （lidar.xacro 的 max=4.0 和 mapper_params_sim.yaml 的 max_laser_range=4.0
+   是刻意的省资源设计，不改。所以是世界迁就激光，不是激光迁就世界。）
+
+  房间内净尺寸 2.7 x 2.7 m
+      对角线 3.82 m < 4 m，站房间任一角都能看到整间。
+
+  走廊净宽 1.5 m
+      两侧墙恒在 0.75 m 处，横向约束强，不会左右漂。
+
+  走廊门洞间距 最大 2.2 m   ← ⚠️ 最吃紧的一条
+      走廊是两条平行直线，纵向没有特征，全靠门洞开口提供不连续性。
+      南北门洞刻意错开（北 -2.8/0/2.8，南 -2.2/0.7/3.4），
+      保证任何位置 4 m 内都至少能看到一个门洞。改门位时务必守住这条。
+
+  门宽 0.9 m
+      footprint 半宽 0.121 + global inflation_radius 0.2，留 0.5 m 低代价通道；
+      NeuPAN 碰撞半宽 0.11，余量充足。别降到 0.7 以下。
+
+  每间家具 1 箱 + 1 柱
+      不是为了避障，是给 slam_toolbox 提供扫描匹配特征。
+      空房间 + 4 m 激光 = 真的会漂。别删。
+
+  房间中心（标导航点用；家具已让开，半径 1.1 m 内无遮挡）:
+      北侧  (-2.8, 2.2)  ( 0.0, 2.2)  ( 2.8, 2.2)
+      南侧  (-2.8,-2.2)  ( 0.0,-2.2)  ( 2.8,-2.2)
+      HOME 建议放走廊西端 (-3.6, 0)。机器人 spawn 在 (0,0)。
+
+  用法: ros2 launch my_bot launch_sim.launch.py world:=<本文件绝对路径>
+-->
+<sdf version="1.6">
+    <world name="default">
+
+        <!-- 基础物理和场景插件 -->
+        <plugin filename="gz-sim-physics-system"
+            name="gz::sim::systems::Physics" />
+        <plugin filename="gz-sim-user-commands-system"
+            name="gz::sim::systems::UserCommands" />
+        <plugin filename="gz-sim-scene-broadcaster-system"
+            name="gz::sim::systems::SceneBroadcaster" />
+
+        <!-- 传感器插件（激光雷达、摄像头等需要这个）-->
+        <plugin filename="gz-sim-sensors-system"
+            name="gz::sim::systems::Sensors">
+            <render_engine>ogre2</render_engine>
+        </plugin>
+
+        <!-- IMU插件 -->
+        <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu" />
+
+        <!-- 光源 -->
+        <light type="directional" name="sun">
+            <cast_shadows>true</cast_shadows>
+            <pose>0 0 10 0 0 0</pose>
+            <diffuse>0.8 0.8 0.8 1</diffuse>
+            <specular>0.2 0.2 0.2 1</specular>
+            <attenuation>
+                <range>1000</range>
+                <constant>0.9</constant>
+                <linear>0.01</linear>
+                <quadratic>0.001</quadratic>
+            </attenuation>
+            <direction>-0.5 0.1 -0.9</direction>
+        </light>
+
+        <!-- 地面 -->
+        <model name="ground_plane">
+            <static>true</static>
+            <link name="link">
+                <collision name="collision">
+                    <geometry>
+                        <plane>
+                            <normal>0 0 1</normal>
+                        </plane>
+                    </geometry>
+                </collision>
+                <visual name="visual">
+                    <geometry>
+                        <plane>
+                            <normal>0 0 1</normal>
+                            <size>100 100</size>
+                        </plane>
+                    </geometry>
+                    <material>
+                        <ambient>0.8 0.8 0.8 1</ambient>
+                        <diffuse>0.8 0.8 0.8 1</diffuse>
+                    </material>
+                </visual>
+            </link>
+        </model>
+
+        <!-- ==================== 外墙（8.4 × 7.2 m 外框） ==================== -->
+
+        <model name="wall_north">
+            <static>true</static>
+            <pose>0 3.6 0.5 0 0 0</pose>
+            <link name="link">
+                <collision name="collision">
+                    <geometry><box><size>8.5 0.1 1</size></box></geometry>
+                </collision>
+                <visual name="visual">
+                    <geometry><box><size>8.5 0.1 1</size></box></geometry>
+                </visual>
+            </link>
+        </model>
+
+        <model name="wall_south">
+            <static>true</static>
+            <pose>0 -3.6 0.5 0 0 0</pose>
+            <link name="link">
+                <collision name="collision">
+                    <geometry><box><size>8.5 0.1 1</size></box></geometry>
+                </collision>
+                <visual name="visual">
+                    <geometry><box><size>8.5 0.1 1</size></box></geometry>
+                </visual>
+            </link>
+        </model>
+
+        <model name="wall_west">
+            <static>true</static>
+            <pose>-4.2 0 0.5 0 0 0</pose>
+            <link name="link">
+                <collision name="collision">
+                    <geometry><box><size>0.1 7.3 1</size></box></geometry>
+                </collision>
+                <visual name="visual">
+                    <geometry><box><size>0.1 7.3 1</size></box></geometry>
+                </visual>
+            </link>
+        </model>
+
+        <model name="wall_east">
+            <static>true</static>
+            <pose>4.2 0 0.5 0 0 0</pose>
+            <link name="link">
+                <collision name="collision">
+                    <geometry><box><size>0.1 7.3 1</size></box></geometry>
+                </collision>
+                <visual name="visual">
+                    <geometry><box><size>0.1 7.3 1</size></box></geometry>
+                </visual>
+            </link>
+        </model>
+
+        <!-- ============ 走廊北墙 y=0.8，门洞在 x = -2.8 / 0.0 / 2.8 ============ -->
+        <!-- 墙段: [-4.2,-3.25] [-2.35,-0.45] [0.45,2.35] [3.25,4.2] -->
+
+        <model name="corridor_n_seg1">
+            <static>true</static>
+            <pose>-3.725 0.8 0.5 0 0 0</pose>
+            <link name="link">
+                <collision name="collision">
+                    <geometry><box><size>0.95 0.1 1</size></box></geometry>
+                </collision>
+                <visual name="visual">
+                    <geometry><box><size>0.95 0.1 1</size></box></geometry>
+                </visual>
+            </link>
+        </model>
+
+        <model name="corridor_n_seg2">
+            <static>true</static>
+            <pose>-1.4 0.8 0.5 0 0 0</pose>
+            <link name="link">
+                <collision name="collision">
+                    <geometry><box><size>1.9 0.1 1</size></box></geometry>
+                </collision>
+                <visual name="visual">
+                    <geometry><box><size>1.9 0.1 1</size></box></geometry>
+                </visual>
+            </link>
+        </model>
+
+        <model name="corridor_n_seg3">
+            <static>true</static>
+            <pose>1.4 0.8 0.5 0 0 0</pose>
+            <link name="link">
+                <collision name="collision">
+                    <geometry><box><size>1.9 0.1 1</size></box></geometry>
+                </collision>
+                <visual name="visual">
+                    <geometry><box><size>1.9 0.1 1</size></box></geometry>
+                </visual>
+            </link>
+        </model>
+
+        <model name="corridor_n_seg4">
+            <static>true</static>
+            <pose>3.725 0.8 0.5 0 0 0</pose>
+            <link name="link">
+                <collision name="collision">
+                    <geometry><box><size>0.95 0.1 1</size></box></geometry>
+                </collision>
+                <visual name="visual">
+                    <geometry><box><size>0.95 0.1 1</size></box></geometry>
+                </visual>
+            </link>
+        </model>
+
+        <!-- ===== 走廊南墙 y=-0.8，门洞在 x = -2.2 / 0.7 / 3.4（刻意与北侧错开）===== -->
+        <!-- 墙段: [-4.2,-2.65] [-1.75,0.25] [1.15,2.95] [3.85,4.2] -->
+
+        <model name="corridor_s_seg1">
+            <static>true</static>
+            <pose>-3.425 -0.8 0.5 0 0 0</pose>
+            <link name="link">
+                <collision name="collision">
+                    <geometry><box><size>1.55 0.1 1</size></box></geometry>
+                </collision>
+                <visual name="visual">
+                    <geometry><box><size>1.55 0.1 1</size></box></geometry>
+                </visual>
+            </link>
+        </model>
+
+        <model name="corridor_s_seg2">
+            <static>true</static>
+            <pose>-0.75 -0.8 0.5 0 0 0</pose>
+            <link name="link">
+                <collision name="collision">
+                    <geometry><box><size>2.0 0.1 1</size></box></geometry>
+                </collision>
+                <visual name="visual">
+                    <geometry><box><size>2.0 0.1 1</size></box></geometry>
+                </visual>
+            </link>
+        </model>
+
+        <model name="corridor_s_seg3">
+            <static>true</static>
+            <pose>2.05 -0.8 0.5 0 0 0</pose>
+            <link name="link">
+                <collision name="collision">
+                    <geometry><box><size>1.8 0.1 1</size></box></geometry>
+                </collision>
+                <visual name="visual">
+                    <geometry><box><size>1.8 0.1 1</size></box></geometry>
+                </visual>
+            </link>
+        </model>
+
+        <model name="corridor_s_seg4">
+            <static>true</static>
+            <pose>4.025 -0.8 0.5 0 0 0</pose>
+            <link name="link">
+                <collision name="collision">
+                    <geometry><box><size>0.35 0.1 1</size></box></geometry>
+                </collision>
+                <visual name="visual">
+                    <geometry><box><size>0.35 0.1 1</size></box></geometry>
+                </visual>
+            </link>
+        </model>
+
+        <!-- ==================== 房间隔墙 ==================== -->
+
+        <model name="divider_n_west">
+            <static>true</static>
+            <pose>-1.4 2.2 0.5 0 0 0</pose>
+            <link name="link">
+                <collision name="collision">
+                    <geometry><box><size>0.1 2.8 1</size></box></geometry>
+                </collision>
+                <visual name="visual">
+                    <geometry><box><size>0.1 2.8 1</size></box></geometry>
+                </visual>
+            </link>
+        </model>
+
+        <model name="divider_n_east">
+            <static>true</static>
+            <pose>1.4 2.2 0.5 0 0 0</pose>
+            <link name="link">
+                <collision name="collision">
+                    <geometry><box><size>0.1 2.8 1</size></box></geometry>
+                </collision>
+                <visual name="visual">
+                    <geometry><box><size>0.1 2.8 1</size></box></geometry>
+                </visual>
+            </link>
+        </model>
+
+        <model name="divider_s_west">
+            <static>true</static>
+            <pose>-1.4 -2.2 0.5 0 0 0</pose>
+            <link name="link">
+                <collision name="collision">
+                    <geometry><box><size>0.1 2.8 1</size></box></geometry>
+                </collision>
+                <visual name="visual">
+                    <geometry><box><size>0.1 2.8 1</size></box></geometry>
+                </visual>
+            </link>
+        </model>
+
+        <model name="divider_s_east">
+            <static>true</static>
+            <pose>1.4 -2.2 0.5 0 0 0</pose>
+            <link name="link">
+                <collision name="collision">
+                    <geometry><box><size>0.1 2.8 1</size></box></geometry>
+                </collision>
+                <visual name="visual">
+                    <geometry><box><size>0.1 2.8 1</size></box></geometry>
+                </visual>
+            </link>
+        </model>
+
+
+        <!-- ==================== 家具 ====================
+             ⚠️ 不是为了避障 —— 是给 slam_toolbox 提供扫描匹配特征。
+             空房间 + 4 m 激光 = 真的会漂。别删。
+
+             刻意做成【每间都不一样】：品类、尺寸、高度、朝向、贴哪面墙都不同。
+             六间屋子如果长得一模一样，回环检测会误匹配（把卧室认成书房）。
+             激光在离地约 0.11~0.16 m，所以只要高于 0.2 m 都扫得到，矮沙发也算数。
+
+             房间中心（=导航点）周围留空 >= 0.75 m，门到中心的通道留空。
+        -->
+        <!-- 客厅·长沙发（贴北墙，矮而长） -->
+        <model name="n1_sofa">
+            <static>true</static>
+            <pose>-3.45 3.2 0.225 0 0 0.0</pose>
+            <link name="link">
+                <collision name="collision">
+                    <geometry><box><size>1.3 0.55 0.45</size></box></geometry>
+                </collision>
+                <visual name="visual">
+                    <geometry><box><size>1.3 0.55 0.45</size></box></geometry>
+                    <material>
+                        <ambient>0.72 0.63 0.48 1</ambient>
+                        <diffuse>0.72 0.63 0.48 1</diffuse>
+                    </material>
+                </visual>
+            </link>
+        </model>
+
+        <!-- 客厅·茶几（斜放，矮） -->
+        <model name="n1_table">
+            <static>true</static>
+            <pose>-1.95 2.95 0.19 0 0 0.6</pose>
+            <link name="link">
+                <collision name="collision">
+                    <geometry><box><size>0.55 0.45 0.38</size></box></geometry>
+                </collision>
+                <visual name="visual">
+                    <geometry><box><size>0.55 0.45 0.38</size></box></geometry>
+                    <material>
+                        <ambient>0.75 0.32 0.28 1</ambient>
+                        <diffuse>0.75 0.32 0.28 1</diffuse>
+                    </material>
+                </visual>
+            </link>
+        </model>
+
+        <!-- 客厅·落地灯（细高） -->
+        <model name="n1_lamp">
+            <static>true</static>
+            <pose>-1.75 1.3 0.65 0 0 0</pose>
+            <link name="link">
+                <collision name="collision">
+                    <geometry><cylinder><radius>0.1</radius><length>1.3</length></cylinder></geometry>
+                </collision>
+                <visual name="visual">
+                    <geometry><cylinder><radius>0.1</radius><length>1.3</length></cylinder></geometry>
+                    <material>
+                        <ambient>0.88 0.62 0.20 1</ambient>
+                        <diffuse>0.88 0.62 0.20 1</diffuse>
+                    </material>
+                </visual>
+            </link>
+        </model>
+
+        <!-- 厨房·整排橱柜（贴北墙，长直边） -->
+        <model name="n2_counter">
+            <static>true</static>
+            <pose>0.0 3.28 0.45 0 0 0.0</pose>
+            <link name="link">
+                <collision name="collision">
+                    <geometry><box><size>2.1 0.42 0.9</size></box></geometry>
+                </collision>
+                <visual name="visual">
+                    <geometry><box><size>2.1 0.42 0.9</size></box></geometry>
+                    <material>
+                        <ambient>0.55 0.57 0.60 1</ambient>
+                        <diffuse>0.55 0.57 0.60 1</diffuse>
+                    </material>
+                </visual>
+            </link>
+        </model>
+
+        <!-- 厨房·圆餐桌 -->
+        <model name="n2_table">
+            <static>true</static>
+            <pose>-1.0 1.5 0.37 0 0 0</pose>
+            <link name="link">
+                <collision name="collision">
+                    <geometry><cylinder><radius>0.35</radius><length>0.74</length></cylinder></geometry>
+                </collision>
+                <visual name="visual">
+                    <geometry><cylinder><radius>0.35</radius><length>0.74</length></cylinder></geometry>
+                    <material>
+                        <ambient>0.25 0.65 0.62 1</ambient>
+                        <diffuse>0.25 0.65 0.62 1</diffuse>
+                    </material>
+                </visual>
+            </link>
+        </model>
+
+        <!-- 厨房·立式垃圾桶（小方） -->
+        <model name="n2_bin">
+            <static>true</static>
+            <pose>1.05 1.42 0.35 0 0 0.35</pose>
+            <link name="link">
+                <collision name="collision">
+                    <geometry><box><size>0.32 0.32 0.7</size></box></geometry>
+                </collision>
+                <visual name="visual">
+                    <geometry><box><size>0.32 0.32 0.7</size></box></geometry>
+                    <material>
+                        <ambient>0.38 0.65 0.42 1</ambient>
+                        <diffuse>0.38 0.65 0.42 1</diffuse>
+                    </material>
+                </visual>
+            </link>
+        </model>
+
+        <!-- 卧室·床（贴北墙，占半间） -->
+        <model name="n3_bed">
+            <static>true</static>
+            <pose>2.8 3.1 0.25 0 0 0.0</pose>
+            <link name="link">
+                <collision name="collision">
+                    <geometry><box><size>1.8 0.8 0.5</size></box></geometry>
+                </collision>
+                <visual name="visual">
+                    <geometry><box><size>1.8 0.8 0.5</size></box></geometry>
+                    <material>
+                        <ambient>0.30 0.55 0.80 1</ambient>
+                        <diffuse>0.30 0.55 0.80 1</diffuse>
+                    </material>
+                </visual>
+            </link>
+        </model>
+
+        <!-- 卧室·衣柜（贴东墙，高） -->
+        <model name="n3_wardrobe">
+            <static>true</static>
+            <pose>3.85 1.6 0.775 0 0 0.0</pose>
+            <link name="link">
+                <collision name="collision">
+                    <geometry><box><size>0.5 1.0 1.55</size></box></geometry>
+                </collision>
+                <visual name="visual">
+                    <geometry><box><size>0.5 1.0 1.55</size></box></geometry>
+                    <material>
+                        <ambient>0.72 0.63 0.48 1</ambient>
+                        <diffuse>0.72 0.63 0.48 1</diffuse>
+                    </material>
+                </visual>
+            </link>
+        </model>
+
+        <!-- 卧室·脏衣篓（球） -->
+        <model name="n3_basket">
+            <static>true</static>
+            <pose>1.78 1.35 0.22 0 0 0</pose>
+            <link name="link">
+                <collision name="collision">
+                    <geometry><sphere><radius>0.22</radius></sphere></geometry>
+                </collision>
+                <visual name="visual">
+                    <geometry><sphere><radius>0.22</radius></sphere></geometry>
+                    <material>
+                        <ambient>0.60 0.40 0.72 1</ambient>
+                        <diffuse>0.60 0.40 0.72 1</diffuse>
+                    </material>
+                </visual>
+            </link>
+        </model>
+
+        <!-- 书房·书桌（贴南墙） -->
+        <model name="s1_desk">
+            <static>true</static>
+            <pose>-3.35 -3.15 0.375 0 0 0.0</pose>
+            <link name="link">
+                <collision name="collision">
+                    <geometry><box><size>1.4 0.6 0.75</size></box></geometry>
+                </collision>
+                <visual name="visual">
+                    <geometry><box><size>1.4 0.6 0.75</size></box></geometry>
+                    <material>
+                        <ambient>0.72 0.63 0.48 1</ambient>
+                        <diffuse>0.72 0.63 0.48 1</diffuse>
+                    </material>
+                </visual>
+            </link>
+        </model>
+
+        <!-- 书房·书架（贴西墙，顶天） -->
+        <model name="s1_shelf">
+            <static>true</static>
+            <pose>-3.95 -1.7 0.9 0 0 0.0</pose>
+            <link name="link">
+                <collision name="collision">
+                    <geometry><box><size>0.35 1.6 1.8</size></box></geometry>
+                </collision>
+                <visual name="visual">
+                    <geometry><box><size>0.35 1.6 1.8</size></box></geometry>
+                    <material>
+                        <ambient>0.75 0.32 0.28 1</ambient>
+                        <diffuse>0.75 0.32 0.28 1</diffuse>
+                    </material>
+                </visual>
+            </link>
+        </model>
+
+        <!-- 书房·圆凳（矮胖） -->
+        <model name="s1_stool">
+            <static>true</static>
+            <pose>-1.7 -1.4 0.225 0 0 0</pose>
+            <link name="link">
+                <collision name="collision">
+                    <geometry><cylinder><radius>0.2</radius><length>0.45</length></cylinder></geometry>
+                </collision>
+                <visual name="visual">
+                    <geometry><cylinder><radius>0.2</radius><length>0.45</length></cylinder></geometry>
+                    <material>
+                        <ambient>0.38 0.65 0.42 1</ambient>
+                        <diffuse>0.38 0.65 0.42 1</diffuse>
+                    </material>
+                </visual>
+            </link>
+        </model>
+
+        <!-- 储物·大纸箱（乱堆，斜） -->
+        <model name="s2_crate_a">
+            <static>true</static>
+            <pose>-1.0 -3.1 0.475 0 0 0.3</pose>
+            <link name="link">
+                <collision name="collision">
+                    <geometry><box><size>0.65 0.6 0.95</size></box></geometry>
+                </collision>
+                <visual name="visual">
+                    <geometry><box><size>0.65 0.6 0.95</size></box></geometry>
+                    <material>
+                        <ambient>0.88 0.62 0.20 1</ambient>
+                        <diffuse>0.88 0.62 0.20 1</diffuse>
+                    </material>
+                </visual>
+            </link>
+        </model>
+
+        <!-- 储物·小纸箱（斜） -->
+        <model name="s2_crate_b">
+            <static>true</static>
+            <pose>-0.85 -1.5 0.275 0 0 0.95</pose>
+            <link name="link">
+                <collision name="collision">
+                    <geometry><box><size>0.42 0.42 0.55</size></box></geometry>
+                </collision>
+                <visual name="visual">
+                    <geometry><box><size>0.42 0.42 0.55</size></box></geometry>
+                    <material>
+                        <ambient>0.72 0.63 0.48 1</ambient>
+                        <diffuse>0.72 0.63 0.48 1</diffuse>
+                    </material>
+                </visual>
+            </link>
+        </model>
+
+        <!-- 储物·铁桶 -->
+        <model name="s2_drum">
+            <static>true</static>
+            <pose>1.05 -3.05 0.5 0 0 0</pose>
+            <link name="link">
+                <collision name="collision">
+                    <geometry><cylinder><radius>0.26</radius><length>1.0</length></cylinder></geometry>
+                </collision>
+                <visual name="visual">
+                    <geometry><cylinder><radius>0.26</radius><length>1.0</length></cylinder></geometry>
+                    <material>
+                        <ambient>0.55 0.57 0.60 1</ambient>
+                        <diffuse>0.55 0.57 0.60 1</diffuse>
+                    </material>
+                </visual>
+            </link>
+        </model>
+
+        <!-- 储物·中纸箱（贴东墙） -->
+        <model name="s2_crate_c">
+            <static>true</static>
+            <pose>1.05 -1.6 0.35 0 0 0.15</pose>
+            <link name="link">
+                <collision name="collision">
+                    <geometry><box><size>0.5 0.5 0.7</size></box></geometry>
+                </collision>
+                <visual name="visual">
+                    <geometry><box><size>0.5 0.5 0.7</size></box></geometry>
+                    <material>
+                        <ambient>0.75 0.32 0.28 1</ambient>
+                        <diffuse>0.75 0.32 0.28 1</diffuse>
+                    </material>
+                </visual>
+            </link>
+        </model>
+
+        <!-- 卫生间·洗手台（贴南墙，长条） -->
+        <model name="s3_vanity">
+            <static>true</static>
+            <pose>2.15 -3.22 0.425 0 0 0.0</pose>
+            <link name="link">
+                <collision name="collision">
+                    <geometry><box><size>1.25 0.5 0.85</size></box></geometry>
+                </collision>
+                <visual name="visual">
+                    <geometry><box><size>1.25 0.5 0.85</size></box></geometry>
+                    <material>
+                        <ambient>0.25 0.65 0.62 1</ambient>
+                        <diffuse>0.25 0.65 0.62 1</diffuse>
+                    </material>
+                </visual>
+            </link>
+        </model>
+
+        <!-- 卫生间·高柜（贴东墙） -->
+        <model name="s3_cabinet">
+            <static>true</static>
+            <pose>3.92 -2.9 0.725 0 0 0.0</pose>
+            <link name="link">
+                <collision name="collision">
+                    <geometry><box><size>0.4 0.62 1.45</size></box></geometry>
+                </collision>
+                <visual name="visual">
+                    <geometry><box><size>0.4 0.62 1.45</size></box></geometry>
+                    <material>
+                        <ambient>0.55 0.57 0.60 1</ambient>
+                        <diffuse>0.55 0.57 0.60 1</diffuse>
+                    </material>
+                </visual>
+            </link>
+        </model>
+
+        <!-- 卫生间·矮圆（马桶近似） -->
+        <model name="s3_stool">
+            <static>true</static>
+            <pose>1.78 -1.62 0.375 0 0 0</pose>
+            <link name="link">
+                <collision name="collision">
+                    <geometry><cylinder><radius>0.22</radius><length>0.75</length></cylinder></geometry>
+                </collision>
+                <visual name="visual">
+                    <geometry><cylinder><radius>0.22</radius><length>0.75</length></cylinder></geometry>
+                    <material>
+                        <ambient>0.30 0.55 0.80 1</ambient>
+                        <diffuse>0.30 0.55 0.80 1</diffuse>
+                    </material>
+                </visual>
+            </link>
+        </model>
+
+        <!-- 走廊·靠北墙矮柜（纵向锚点，与南侧错开） -->
+        <model name="hall_console_w">
+            <static>true</static>
+            <pose>-1.9 0.62 0.4 0 0 0.0</pose>
+            <link name="link">
+                <collision name="collision">
+                    <geometry><box><size>0.75 0.22 0.8</size></box></geometry>
+                </collision>
+                <visual name="visual">
+                    <geometry><box><size>0.75 0.22 0.8</size></box></geometry>
+                    <material>
+                        <ambient>0.60 0.40 0.72 1</ambient>
+                        <diffuse>0.60 0.40 0.72 1</diffuse>
+                    </material>
+                </visual>
+            </link>
+        </model>
+
+        <!-- 走廊·靠南墙矮柜（纵向锚点） -->
+        <model name="hall_console_e">
+            <static>true</static>
+            <pose>2.3 -0.62 0.375 0 0 0.0</pose>
+            <link name="link">
+                <collision name="collision">
+                    <geometry><box><size>0.65 0.22 0.75</size></box></geometry>
+                </collision>
+                <visual name="visual">
+                    <geometry><box><size>0.65 0.22 0.75</size></box></geometry>
+                    <material>
+                        <ambient>0.38 0.65 0.42 1</ambient>
+                        <diffuse>0.38 0.65 0.42 1</diffuse>
+                    </material>
+                </visual>
+            </link>
+        </model>
+
+        <!-- ==================== 动态行人（本文件独有） ====================
+             collision 用 0.18 半径 / 0.90 高的圆柱，pose z=0.45 —— 和
+             dynamic_indoor_crossing.sdf 的既有约定一致，激光雷达（离地
+             0.11~0.16 m）在这个高度上稳定扫得到。
+        -->
+
+        <!-- 走廊交叉 A：沿走廊长轴（贴北墙一侧 y=0.35）东西往返，全程 6m。
+             速度 ~0.12 m/s —— 刻意调到和机器人自己的实测有效吞吐（基线体检测得
+             ~0.05~0.2 m/s，比 NeuPAN ref_speed 0.3 慢很多）相当甚至略慢，让行人
+             在机器人路径上停留够久，形成真正的"让路/等待"而不是一闪而过。
+             （第一版用 0.3~0.4 m/s，比机器人快，行人到达即离开，测不出让路行为，
+             已按实测结果调整，见 docs/APP 或 baseline_metrics.py 的产出 JSON）-->
+        <actor name="corridor_walker_a">
+            <link name="link">
+                <collision name="collision">
+                    <geometry><cylinder><radius>0.18</radius><length>0.90</length></cylinder></geometry>
+                </collision>
+                <visual name="visual">
+                    <geometry><cylinder><radius>0.18</radius><length>0.90</length></cylinder></geometry>
+                    <material><ambient>0.9 0.15 0.12 1</ambient><diffuse>0.9 0.15 0.12 1</diffuse></material>
+                </visual>
+            </link>
+            <script>
+                <loop>true</loop>
+                <auto_start>true</auto_start>
+                <trajectory id="0" type="square">
+                    <waypoint><time>0</time><pose>-3.0 0.35 0.45 0 0 0</pose></waypoint>
+                    <waypoint><time>50</time><pose>3.0 0.35 0.45 0 0 0</pose></waypoint>
+                    <waypoint><time>50.1</time><pose>3.0 0.35 0.45 0 0 3.14159</pose></waypoint>
+                    <waypoint><time>100</time><pose>-3.0 0.35 0.45 0 0 3.14159</pose></waypoint>
+                    <waypoint><time>100.1</time><pose>-3.0 0.35 0.45 0 0 0</pose></waypoint>
+                </trajectory>
+            </script>
+        </actor>
+
+        <!-- 走廊交叉 B：贴南墙一侧 y=-0.35，反相位往返，和 A 在走廊中段反复交会 -->
+        <actor name="corridor_walker_b">
+            <link name="link">
+                <collision name="collision">
+                    <geometry><cylinder><radius>0.18</radius><length>0.90</length></cylinder></geometry>
+                </collision>
+                <visual name="visual">
+                    <geometry><cylinder><radius>0.18</radius><length>0.90</length></cylinder></geometry>
+                    <material><ambient>0.95 0.55 0.08 1</ambient><diffuse>0.95 0.55 0.08 1</diffuse></material>
+                </visual>
+            </link>
+            <script>
+                <loop>true</loop>
+                <auto_start>true</auto_start>
+                <trajectory id="0" type="square">
+                    <waypoint><time>0</time><pose>2.5 -0.35 0.45 0 0 3.14159</pose></waypoint>
+                    <waypoint><time>37.5</time><pose>-2.0 -0.35 0.45 0 0 3.14159</pose></waypoint>
+                    <waypoint><time>37.6</time><pose>-2.0 -0.35 0.45 0 0 0</pose></waypoint>
+                    <waypoint><time>75</time><pose>2.5 -0.35 0.45 0 0 0</pose></waypoint>
+                    <waypoint><time>75.1</time><pose>2.5 -0.35 0.45 0 0 3.14159</pose></waypoint>
+                </trajectory>
+            </script>
+        </actor>
+
+        <!-- 房间门口拦截：厨房北门洞 x=0.0，在走廊和厨房之间进出 -->
+        <actor name="doorway_kitchen">
+            <link name="link">
+                <collision name="collision">
+                    <geometry><cylinder><radius>0.18</radius><length>0.90</length></cylinder></geometry>
+                </collision>
+                <visual name="visual">
+                    <geometry><cylinder><radius>0.18</radius><length>0.90</length></cylinder></geometry>
+                    <material><ambient>0.1 0.45 0.95 1</ambient><diffuse>0.1 0.45 0.95 1</diffuse></material>
+                </visual>
+            </link>
+            <script>
+                <loop>true</loop>
+                <auto_start>true</auto_start>
+                <trajectory id="0" type="square">
+                    <waypoint><time>0</time><pose>0.0 0.3 0.45 0 0 1.5708</pose></waypoint>
+                    <waypoint><time>12.5</time><pose>0.0 1.8 0.45 0 0 1.5708</pose></waypoint>
+                    <waypoint><time>12.6</time><pose>0.0 1.8 0.45 0 0 -1.5708</pose></waypoint>
+                    <waypoint><time>25</time><pose>0.0 0.3 0.45 0 0 -1.5708</pose></waypoint>
+                    <waypoint><time>25.1</time><pose>0.0 0.3 0.45 0 0 1.5708</pose></waypoint>
+                </trajectory>
+            </script>
+        </actor>
+
+        <!-- 房间门口拦截：储物南门洞 x=0.7，和 doorway_kitchen 错开相位 -->
+        <actor name="doorway_storage">
+            <link name="link">
+                <collision name="collision">
+                    <geometry><cylinder><radius>0.18</radius><length>0.90</length></cylinder></geometry>
+                </collision>
+                <visual name="visual">
+                    <geometry><cylinder><radius>0.18</radius><length>0.90</length></cylinder></geometry>
+                    <material><ambient>0.1 0.75 0.25 1</ambient><diffuse>0.1 0.75 0.25 1</diffuse></material>
+                </visual>
+            </link>
+            <script>
+                <loop>true</loop>
+                <auto_start>true</auto_start>
+                <trajectory id="0" type="square">
+                    <waypoint><time>0</time><pose>0.7 -1.8 0.45 0 0 -1.5708</pose></waypoint>
+                    <waypoint><time>12.5</time><pose>0.7 -0.3 0.45 0 0 -1.5708</pose></waypoint>
+                    <waypoint><time>12.6</time><pose>0.7 -0.3 0.45 0 0 1.5708</pose></waypoint>
+                    <waypoint><time>25</time><pose>0.7 -1.8 0.45 0 0 1.5708</pose></waypoint>
+                    <waypoint><time>25.1</time><pose>0.7 -1.8 0.45 0 0 -1.5708</pose></waypoint>
+                </trajectory>
+            </script>
+        </actor>
+
+        <!-- 多人同时出现：斜穿走廊，从北门洞(客厅,-2.8)到南门洞(书房,-2.2)，
+             活动区间和 corridor_walker_a/b 的往返路径重叠，制造"多人同时挡路" -->
+        <actor name="hallway_diagonal">
+            <link name="link">
+                <collision name="collision">
+                    <geometry><cylinder><radius>0.18</radius><length>0.90</length></cylinder></geometry>
+                </collision>
+                <visual name="visual">
+                    <geometry><cylinder><radius>0.18</radius><length>0.90</length></cylinder></geometry>
+                    <material><ambient>0.60 0.40 0.72 1</ambient><diffuse>0.60 0.40 0.72 1</diffuse></material>
+                </visual>
+            </link>
+            <script>
+                <loop>true</loop>
+                <auto_start>true</auto_start>
+                <trajectory id="0" type="square">
+                    <waypoint><time>0</time><pose>-2.8 0.5 0.45 0 0 -2.35</pose></waypoint>
+                    <waypoint><time>10</time><pose>-2.2 -0.5 0.45 0 0 -2.35</pose></waypoint>
+                    <waypoint><time>10.1</time><pose>-2.2 -0.5 0.45 0 0 0.79</pose></waypoint>
+                    <waypoint><time>20</time><pose>-2.8 0.5 0.45 0 0 0.79</pose></waypoint>
+                    <waypoint><time>20.1</time><pose>-2.8 0.5 0.45 0 0 -2.35</pose></waypoint>
+                </trajectory>
+            </script>
+        </actor>
+
+    </world>
+</sdf>

@@ -40,3 +40,15 @@ task_manager:
     # 默认 0.2 < NeuPAN 的 ref_speed 0.3，因为过门和转弯拉低了实际均速。按实测调：
     #   实测均速 = 路径长度 / 实际耗时
     eta_speed_mps: 0.2
+
+# 导航卡死看门狗（scripts/nav_watchdog.py）。和 task_manager 是两个节点，
+# 但共用这一份 yaml —— launch 里把同一个 task_params_file 传给两个节点，
+# 各自只读自己名字下的 ros__parameters 块。
+nav_watchdog:
+  ros__parameters:
+    # 机器人连续这么多秒位移不超过 min_progress_m，就判定"卡死"。
+    # 要明显大于 Nav2 自己 BT 恢复行为的正常耗时（清 costmap+spin+wait 2s+backup，
+    # 正常几秒内做完），不然会跟 Nav2 自己的恢复动作打架、误报。
+    stuck_timeout_sec: 30.0
+    min_progress_m: 0.15
+    check_period_sec: 2.0

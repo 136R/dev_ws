@@ -10,6 +10,9 @@ install(
 
 install(PROGRAMS
   scripts/task_manager.py
+  scripts/nav_watchdog.py
+  scripts/baseline_metrics.py
+  scripts/soak_test.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
