@@ -90,7 +90,7 @@ controller_server:
 
     progress_checker:
       plugin: "nav2_controller::SimpleProgressChecker"
-      required_movement_radius: 0.3
+      required_movement_radius: 0.1
       movement_time_allowance: 10.0
     general_goal_checker:
       stateful: True
@@ -98,10 +98,23 @@ controller_server:
       xy_goal_tolerance: 0.05
       yaw_goal_tolerance: 6.28       # 不约束 yaw (差速 line 跟踪不保证终点朝向)
 
-    # ─────────────────────────── NeuPAN 控制器 ───────────────────────────
-    # 全局路径经 setPlan() 传入 → NeuPAN 跟踪; 障碍来自 local costmap 高代价栅格。
+    # ────────────────────── RotationShim(先转) + NeuPAN(追踪+避障) ──────────────────────
+    # NeuPAN 是纯 MPC，每步同时求解 v/w，朝向偏差大时只会"边走边转"成一条甩头弧线，
+    # 没有离散的"先原地转向对齐再走"这一档——这不是调参能改的，是 MPC 架构本身决定的。
+    # 用 Nav2 官方 RotationShimController 包一层：新路径下发时若朝向偏差超过阈值，
+    # shim 自己原地转对齐，对齐后把控制权交还给 NeuPAN 继续追踪+避障；路径中途的转弯
+    # 仍由 NeuPAN 平滑处理成弧线，不会逐个拐点都停下来转（不影响它在动态办公室世界里的避障能力）。
     FollowPath:
-      plugin: "neupan_cpp_ros::NeuPANController"
+      plugin: "nav2_rotation_shim_controller::RotationShimController"
+      primary_controller: "neupan_cpp_ros::NeuPANController"
+      angular_dist_threshold: 0.785398   # 45°；超过此偏差才原地转，小偏差仍交给 NeuPAN 用弧线自然纠正
+      forward_sampling_distance: 0.5     # 沿路径前探 0.5m 取参考点算"该往哪转"，而非只看第一个点
+      rotate_to_heading_angular_vel: 1.2 # 原地转的角速度(rad/s)；相对 NeuPAN 避障时的瞬时急转更保守
+      max_angular_accel: 2.4             # 对齐 velocity_smoother 的 max_accel/max_decel theta，避免被削波变卡顿
+      simulate_ahead_time: 1.0           # 原地转前用 costmap 模拟这段时间内是否会撞（shim 自带碰撞检测）
+      rotate_to_goal_heading: false      # 终点朝向不约束，沿用 yaw_goal_tolerance: 6.28 的既有设定
+
+      # —— 以下为 primary_controller(NeuPAN) 自身参数，与 shim 参数平铺在同一 FollowPath 命名空间 ——
       config_package: "my_bot_nav"                             # 相对路径按此包 share 解析
       config_file: "config/sim/neupan_sim.yaml"               # NeuPAN 规划器调参 (与模型几何一致)
       dune_checkpoint: "config/common/neupan/diff_mybot.bin"  # 用户自训模型

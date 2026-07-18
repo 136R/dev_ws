@@ -2,7 +2,8 @@
 # 局部: NeuPAN (nav2_core::Controller 插件, neupan_cpp_ros::NeuPANController) —— 实机
 #
 # 由 nav2_params_hw_rpp.yaml 派生。仅改三处:
-#   1. controller_server 的 FollowPath 换成 NeuPAN 插件 (config_file 指实机专属 neupan_hw.yaml)
+#   1. controller_server 的 FollowPath 换成 RotationShimController 包 NeuPAN 插件
+#      (先原地转对齐再交给 NeuPAN 追踪+避障; config_file 指实机专属 neupan_hw.yaml)
 #   2. keepout_filter 先关闭 (首版验证 NeuPAN 导航/避障; 阶段4再启用)
 #   3. velocity_smoother 放宽到匹配 NeuPAN 限值, 以免削平 NeuPAN 输出
 # 其余全部沿用实机 RPP (use_sim_time False, /scan_filtered, footprint 0.126, ThetaStar 等)。
@@ -100,10 +101,24 @@ controller_server:
       xy_goal_tolerance: 0.05        # 目标X、Y
       yaw_goal_tolerance: 6.28       # 目标 Yaw (差速 line 跟踪不保证终点朝向)
 
-    # ─────────────────────────── NeuPAN 控制器 ───────────────────────────
-    # 全局路径经 setPlan() 传入 → NeuPAN 跟踪; 障碍来自 local costmap 高代价栅格。
+    # ────────────────────── RotationShim(先转) + NeuPAN(追踪+避障) ──────────────────────
+    # 与仿真版(nav2_params_neupan.yaml)同款方案，已在仿真验证过：NeuPAN 是纯 MPC，没有
+    # 离散的"先原地转向对齐再走"这一档，朝向偏差大时只会甩头画弧。用 Nav2 官方
+    # RotationShimController 包一层：新路径下发时偏差超过阈值先原地转对齐，对齐后
+    # 交还给 NeuPAN 继续追踪+避障；路径中途转弯仍由 NeuPAN 平滑处理成弧线。
+    # 各参数与仿真版保持一致 (max_angular_accel 对齐本文件 velocity_smoother 的
+    # theta max_accel/max_decel=2.4；rotate_to_heading_angular_vel 用仿真验证后的 1.2)。
     FollowPath:
-      plugin: "neupan_cpp_ros::NeuPANController"
+      plugin: "nav2_rotation_shim_controller::RotationShimController"
+      primary_controller: "neupan_cpp_ros::NeuPANController"
+      angular_dist_threshold: 0.785398   # 45°；超过此偏差才原地转，小偏差仍交给 NeuPAN 用弧线自然纠正
+      forward_sampling_distance: 0.5     # 沿路径前探 0.5m 取参考点算"该往哪转"，而非只看第一个点
+      rotate_to_heading_angular_vel: 1.2 # 原地转的角速度(rad/s)
+      max_angular_accel: 2.4             # 对齐 velocity_smoother 的 max_accel/max_decel theta，避免被削波变卡顿
+      simulate_ahead_time: 1.0           # 原地转前用 costmap 模拟这段时间内是否会撞（shim 自带碰撞检测）
+      rotate_to_goal_heading: false      # 终点朝向不约束，沿用 yaw_goal_tolerance: 6.28 的既有设定
+
+      # —— 以下为 primary_controller(NeuPAN) 自身参数，与 shim 参数平铺在同一 FollowPath 命名空间 ——
       config_package: "my_bot_nav"                             # 相对路径按此包 share 解析
       config_file: "config/hw/neupan_hw.yaml"                 # 实机专属 NeuPAN 调参 (与模型几何一致)
       dune_checkpoint: "config/common/neupan/diff_mybot.bin"  # 用户自训模型
@@ -301,8 +316,8 @@ velocity_smoother:
     feedback: "OPEN_LOOP"
     max_velocity: [0.32, 0.0, 3.2]
     min_velocity: [-0.32, 0.0, -3.2]
-    max_accel: [1.1, 0.0, 2.4]
-    max_decel: [-1.1, 0.0, -2.4]
+    max_accel: [1.2, 0.0, 2.4]
+    max_decel: [-1.2, 0.0, -2.4]
     odom_topic: "odom"
     odom_duration: 0.1
     deadband_velocity: [0.0, 0.0, 0.0]
