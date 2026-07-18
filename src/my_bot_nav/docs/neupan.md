@@ -69,6 +69,84 @@ fork 相对上游多了三块（commit `c428288`）：
 
 **第二层：NeuPAN 规划器参数**（`config/{sim,hw}/neupan_{sim,hw}.yaml`）—— 见下。
 
+## DUNE 模型重训
+
+机器人 length/width 变了、或想验证一遍可复现的训练流程时才需要。用 upstream 的 Python
+训练工具训，再导出成本仓库读的 NPTF `.bin`。
+
+环境：upstream 训练脚本在 `~/NeuPAN_src`（workspace 外单独 `git clone hanruihua/NeuPAN`，
+`pip install torch cvxpy`）；导出工具在本仓库 `src/neupan_cpp/libneupan/tools/export_dune_weights.py`。
+
+```bash
+# 1. 训练配置 —— robot.length/width 见下方「踩过的坑」第 1 条，不是车身壳体尺寸
+cd ~/NeuPAN_src/example/dune_train
+cat > dune_train_mybot.yaml << 'EOF'
+robot:
+  kinematics: 'diff'
+  name: 'mybot'
+  length: 0.18
+  width: 0.22
+
+train:
+  direct_train: true
+  data_size: 100000
+  data_range: [-25, -25, 25, 25]
+  batch_size: 256
+  epoch: 5000
+  valid_freq: 250
+  save_freq: 500
+  lr: 5e-5
+  lr_decay: 0.5
+  decay_freq: 1500
+EOF
+
+cat > dune_train_mybot.py << 'EOF'
+from neupan import neupan
+
+if __name__ == '__main__':
+    neupan_planner = neupan.init_from_yaml('dune_train_mybot.yaml')
+    neupan_planner.train_dune()
+EOF
+
+# 2. 训练（默认 CPU，见「踩过的坑」第 2 条——别为了这个模型特意切 GPU）
+python3 dune_train_mybot.py
+# 终端最后一行 "Complete Training. The model is saved in ..." 打印的才是真实存盘路径（见第 3 条）
+
+# 3. 导出成 neupan_cpp 读的 NPTF 格式
+cd ~/dev_ws/src/neupan_cpp/libneupan/tools
+python3 export_dune_weights.py \
+  ~/NeuPAN_src/example/dune_train/model/<训练打印的实际目录>/model_5000.pth \
+  /tmp/diff_mybot_new.bin \
+  4   # 边数=4，矩形机器人固定值，别改
+
+# 4. 先测再上线：新建一份临时 yaml 把 config_file/dune_checkpoint 指向新文件（别直接改正式配置），
+#    sim 里验收通过后再覆盖 config/common/neupan/diff_mybot.bin，
+#    并同步改 hw、sim 两份 neupan_*.yaml 的 length/width（同一台实体机器人，两份必须一致）
+```
+
+### 踩过的坑
+
+1. **length/width 不是车身壳体的 CAD 尺寸，是"以两驱动轮轴线为中心对称的矩形"要包住的最远点。**
+   `neupan/robot/robot.py::cal_vertices_from_length_width` 生成的矩形以旋转中心对称，这个矩形
+   直接就是运行时 NRMP 的硬避障边界，也是训练 DUNE 时的边界采样依据——只用车身壳体尺寸会漏掉
+   轮子/脚轮的外沿。`my_bot` 的真实外廓（相对 base_link 原点，即两驱动轮轴线）：
+   x∈[-0.089,+0.035]（车体前后不对称，脚轮在后）、y∈[-0.101,+0.101]（驱动轮厚度方向决定，
+   不是轮子半径方向）。矩形只能对称，所以 length 要取 2×max(前伸,后伸)，多余的一侧就是浪费但安全的余量。
+
+2. **GPU 对这个模型反而更慢，别为了"加速"特意切。** DUNE 是个很小的 MLP（隐藏层 32、5 层
+   Linear），upstream README 说训练可以上 GPU 加速，但这个规模下核函数启动 + CPU↔GPU 数据搬运的
+   开销比计算本身还大——实测同一份 5000 epoch 配置，CPU ≈51min，GPU(cuda:0) ≈71min。默认就是
+   CPU（`neupan/configuration/__init__.py` 硬编码 `torch.device("cpu")`，只有 yaml 顶层显式加
+   `device: 'cuda'` 才会切）。
+
+3. **`model_name` 对应的存盘目录会自动加后缀防覆盖。** `train_dune()` 存盘路径是
+   `<脚本所在目录>/model/<robot.name>/`；如果这个目录已存在（比如上次训了一半被 Ctrl+C），会自动
+   改存到 `<name>_2`、`<name>_3`……**别按 yaml 里写的 name 直接拼路径去导出**，要看训练结束时终端
+   打印的 "Complete Training. The model is saved in ..." 那一行的实际路径。
+
+4. **`export_dune_weights.py` 的 `torch.load` FutureWarning 可以忽略。** 提示的是 `weights_only=False`
+   相关的 pickle 安全风险，这是 torch 新版本的通用提示，checkpoint 是自己训的就没问题。
+
 ## 调参
 
 `neupan_sim.yaml` 里每个参数都写了"调大/调小的效果"，这里只说**优先级**。
@@ -77,12 +155,14 @@ fork 相对上游多了三块（commit `c428288`）：
 
 ```yaml
 robot:
-  length: 0.16      # 机器人几何长度(m)
+  length: 0.18      # 机器人几何长度(m)
   width:  0.22      # 机器人几何宽度(m)
 ```
 
 **必须与实车一致。** 碰撞几何靠它，错了要么撞、要么在能过的地方停死。
-`dune_checkpoint` 的模型也是按这套几何训的，两者要匹配。
+`dune_checkpoint` 的模型也是按这套几何训的，两者要匹配。这不是车身壳体的 CAD 尺寸，
+是"以两驱动轮轴线为中心对称的矩形"要包住的最远点（含轮子/脚轮）——细节见下面
+「DUNE 模型重训」一节。2026-07 因为这个原因把 length 从 0.16 改到了 0.18。
 
 ### 作者点名的主要调参项
 
