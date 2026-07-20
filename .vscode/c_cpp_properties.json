@@ -3,15 +3,12 @@
     {
       "browse": {
         "databaseFilename": "${default}",
-        "limitSymbolsToIncludedHeaders": false
+        "limitSymbolsToIncludedHeaders": true
       },
       "includePath": [
-        "/home/bingda/ros2_gazebo/install/robot_common_gazebo/include/**",
-        "/home/bingda/ros2_gazebo/install/robot_common/include/**",
-        "/home/bingda/gm_ros2_sim/install/gazebo_grasp_plugin/include/**",
-        "/home/bingda/gm_ros2_sim/install/gazebo_version_helpers/include/**",
-        "/opt/ros/humble/include/**",
-        "/usr/include/**"
+        "${workspaceFolder}/install/*/include/**",
+        "${workspaceFolder}/src/*/include/**",
+        "/opt/ros/humble/include/**"
       ],
       "name": "ROS",
       "intelliSenseMode": "gcc-x64",

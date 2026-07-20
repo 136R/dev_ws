@@ -10,5 +10,21 @@
     ],
     "cmake.sourceDirectory": "/home/bingda/dev_ws/src/gz_ros2_control/gz_ros2_control_tests",
     "commentTranslate.source": "Google",
-    "ros.distro": "humble"
+    "ros.distro": "humble",
+    "files.watcherExclude": {
+        "**/build/**": true,
+        "**/install/**": true,
+        "**/log/**": true,
+        "**/.git/objects/**": true
+    },
+    "files.exclude": {
+        "**/build": true,
+        "**/install": true,
+        "**/log": true
+    },
+    "search.exclude": {
+        "**/build": true,
+        "**/install": true,
+        "**/log": true
+    }
 }
