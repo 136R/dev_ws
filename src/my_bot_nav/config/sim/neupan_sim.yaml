@@ -47,5 +47,5 @@ adjust:                 # ← 作者：调参主要在本段
 
 backoff:
   enabled: true
-  release_distance: 0.2   # 滞回：退到 min_dist ≥ 此值才恢复前进；≈ 正面退车距离（想退更多就调大它）
-  max_cycles: 20          # 后退封顶帧数；须 ≥ release_distance/0.015 才退得到目标，否则被截断后交还 Nav2
+  release_distance: 0.3   # 滞回：退到 min_dist ≥ 此值才恢复前进；≈ 正面退车距离（想退更多就调大它）
+  max_cycles: 30          # 后退封顶帧数；须 ≥ release_distance/0.015 才退得到目标，否则被截断后交还 Nav2

@@ -11,7 +11,7 @@
 receding: 6            # MPC 后退时域步数。调大→看得更远、轨迹更平滑但计算量↑；调小→算得快、反应快但短视（作者列为提速可调项）
 step_time: 0.25
 ref_speed: 0.3          # 参考(期望)速度(m/s)，受 max_speed 上限约束。调大→跑更快但避障余量小；调小→更稳更慢
-collision_threshold: 0.01  # 碰撞检测阈值(m)：最近障碍距离低于它即触发停车。调大→更早急停更安全、窄处易停死；调小→敢靠近但撞险↑
+collision_threshold: 0.005  # 碰撞检测阈值(m)：最近障碍距离低于它即触发停车。调大→更早急停更安全、窄处易停死；调小→敢靠近但撞险↑
 device: 'cpu'           # 【neupan_cpp 未读取】C++ 版无 PyTorch，改之无效
 time_print: False       # 【neupan_cpp 未读取】仅上游 Python 版用于打印规划耗时，改之无效
 
@@ -47,5 +47,5 @@ adjust:                 # ← 作者：调参主要在本段
 
 backoff:
   enabled: true
-  release_distance: 0.2   # 滞回：退到 min_dist ≥ 此值才恢复前进；≈ 正面退车距离（想退更多就调大它）
-  max_cycles: 20          # 后退封顶帧数；须 ≥ release_distance/0.015 才退得到目标，否则被截断后交还 Nav2
+  release_distance: 0.3   # 滞回：退到 min_dist ≥ 此值才恢复前进；≈ 正面退车距离（想退更多就调大它）
+  max_cycles: 30          # 后退封顶帧数；须 ≥ release_distance/0.015 才退得到目标，否则被截断后交还 Nav2

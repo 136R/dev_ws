@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""仿真数据监控：轮式里程计、融合 EKF 偏航、Gazebo 地面真值。"""
+"""数据监控：轮式里程计、融合 EKF 偏航、Nav2 输出；仿真模式可对比 Gazebo 真值。"""
 
+import argparse
 import math
 import sys
 
@@ -22,8 +23,13 @@ class DataMonitor(Node):
     EKF_TOPIC = '/odometry/filtered'
     CMD_VEL_NAV2_TOPIC = '/cmd_vel_nav'
 
-    def __init__(self):
+    def __init__(self, mode='sim'):
         super().__init__('data_monitor')
+        if mode == 'real':
+            mode = 'hw'
+        self.mode = mode
+        self.sim_mode = mode == 'sim'
+        self.dashboard_line_count = 0
 
         self.odom_x = None
         self.odom_y = None
@@ -53,29 +59,31 @@ class DataMonitor(Node):
         self.create_subscription(Odometry, self.ODOM_TOPIC, self.odom_cb, 10)
         self.create_subscription(Odometry, self.EKF_TOPIC, self.ekf_cb, 10)
         self.create_subscription(Twist, self.CMD_VEL_NAV2_TOPIC, self.cmd_nav2_cb, 10)
-        self.create_subscription(
-            PoseStamped,
-            self.GZ_SINGLE_POSE_TOPIC,
-            self.gz_single_pose_cb,
-            10,
-        )
-        self.create_subscription(
-            PoseArray,
-            self.GZ_WORLD_POSES_TOPIC,
-            self.gz_posearray_cb,
-            10,
-        )
+        if self.sim_mode:
+            self.create_subscription(
+                PoseStamped,
+                self.GZ_SINGLE_POSE_TOPIC,
+                self.gz_single_pose_cb,
+                10,
+            )
+            self.create_subscription(
+                PoseArray,
+                self.GZ_WORLD_POSES_TOPIC,
+                self.gz_posearray_cb,
+                10,
+            )
 
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
 
         self.create_timer(0.2, self.print_dashboard)
-        self.get_logger().info(
-            f'仿真监控启动：{self.ODOM_TOPIC}, {self.EKF_TOPIC}, '
-            f'{self.CMD_VEL_NAV2_TOPIC}, '
-            f'{self.GZ_SINGLE_POSE_TOPIC}/{self.GZ_WORLD_POSES_TOPIC}'
-        )
-        print('\n' * 14)
+        topics = f'{self.ODOM_TOPIC}, {self.EKF_TOPIC}, {self.CMD_VEL_NAV2_TOPIC}'
+        if self.sim_mode:
+            topics += f', {self.GZ_SINGLE_POSE_TOPIC}/{self.GZ_WORLD_POSES_TOPIC}'
+        self.get_logger().info(f'{self.mode_label()}监控启动：{topics}')
+
+    def mode_label(self):
+        return '仿真' if self.sim_mode else '实机'
 
     @staticmethod
     def normalize_angle_degrees(angle):
@@ -173,30 +181,55 @@ class DataMonitor(Node):
 
     def print_dashboard(self):
         self.update_map_pose()
-        sys.stdout.write('\033[14A\033[J')
-        dashboard = (
-            '   === 仿真话题实时监控：轮式里程计 / 融合 EKF 偏航 / Gazebo 地面真值 ===\n'
-            f'   [轮式里程计 {self.ODOM_TOPIC:<20}] {self.pose_line(self.odom_x, self.odom_y, self.odom_yaw)}\n'
-            f'   [轮式里程计 速度                 ] {self.velocity_line(self.odom_vx, self.odom_wz)}\n'
-            f'   [融合 EKF {self.EKF_TOPIC:<25}] {self.pose_line(self.ekf_x, self.ekf_y, self.ekf_yaw)}\n'
-            f'   [融合 EKF 速度                  ] {self.velocity_line(self.ekf_vx, self.ekf_wz)}\n'
-            f'   [MPPI 输出 {self.CMD_VEL_NAV2_TOPIC:<23}] {self.velocity_line(self.cmd_nav2_vx, self.cmd_nav2_wz)}\n'
-            f'   [Map 位姿 map->base_footprint   ] {self.pose_line(self.map_x, self.map_y, self.map_yaw)}\n'
-            f'   [Map 状态                       ] {self.map_status}\n'
-            '   ---------------------------------------------------------------\n'
-            f'   [Gazebo 地面真值                 ] {self.pose_line(self.gz_x, self.gz_y, self.gz_yaw)}\n'
-            f'   [Gazebo 来源                     ] {self.gz_source}\n'
-            '   ---------------------------------------------------------------\n'
-            f'   备用真值：{self.GZ_WORLD_POSES_TOPIC}[{self.WORLD_POSES_INDEX}]；优先真值：{self.GZ_SINGLE_POSE_TOPIC}\n'
-            '   Ctrl+C 退出'
-        )
-        sys.stdout.write(dashboard)
+        if self.dashboard_line_count:
+            sys.stdout.write(f'\033[{self.dashboard_line_count}A\033[J')
+
+        lines = [
+            f'   === {self.mode_label()}话题实时监控：轮式里程计 / 融合 EKF 偏航 / Nav2 输出 ===',
+            f'   [轮式里程计 {self.ODOM_TOPIC:<20}] {self.pose_line(self.odom_x, self.odom_y, self.odom_yaw)}',
+            f'   [轮式里程计 速度                 ] {self.velocity_line(self.odom_vx, self.odom_wz)}',
+            f'   [融合 EKF {self.EKF_TOPIC:<25}] {self.pose_line(self.ekf_x, self.ekf_y, self.ekf_yaw)}',
+            f'   [融合 EKF 速度                  ] {self.velocity_line(self.ekf_vx, self.ekf_wz)}',
+            f'   [Nav2 输出 {self.CMD_VEL_NAV2_TOPIC:<23}] {self.velocity_line(self.cmd_nav2_vx, self.cmd_nav2_wz)}',
+            f'   [Map 位姿 map->base_footprint   ] {self.pose_line(self.map_x, self.map_y, self.map_yaw)}',
+            f'   [Map 状态                       ] {self.map_status}',
+        ]
+
+        if self.sim_mode:
+            lines.extend([
+                '   ---------------------------------------------------------------',
+                f'   [Gazebo 地面真值                 ] {self.pose_line(self.gz_x, self.gz_y, self.gz_yaw)}',
+                f'   [Gazebo 来源                     ] {self.gz_source}',
+                '   ---------------------------------------------------------------',
+                f'   备用真值：{self.GZ_WORLD_POSES_TOPIC}[{self.WORLD_POSES_INDEX}]；优先真值：{self.GZ_SINGLE_POSE_TOPIC}',
+            ])
+
+        lines.append('   Ctrl+C 退出')
+        self.dashboard_line_count = len(lines)
+        sys.stdout.write('\n'.join(lines) + '\n')
         sys.stdout.flush()
 
 
+def parse_args(args=None):
+    parser = argparse.ArgumentParser(
+        description='实时查看 /odom、/odometry/filtered、Nav2 输出和位姿 TF。'
+    )
+    parser.add_argument(
+        '--mode',
+        choices=('sim', 'hw', 'real'),
+        default='sim',
+        help='sim 显示 Gazebo 真值；hw/real 为实机模式，不订阅 Gazebo 话题。默认 sim。',
+    )
+    parsed, _ = parser.parse_known_args(args)
+    if parsed.mode == 'real':
+        parsed.mode = 'hw'
+    return parsed
+
+
 def main(args=None):
+    cli_args = parse_args(sys.argv[1:] if args is None else args)
     rclpy.init(args=args)
-    node = DataMonitor()
+    node = DataMonitor(mode=cli_args.mode)
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:

@@ -16,7 +16,7 @@ ros2 run teleop_twist_keyboard teleop_twist_keyboard \
   -p speed:=0.2 -p turn:=0.6
 
 # 里程计查看
-./src/script/monitor.py
+./src/my_bot/python/monitor.py --mode hw
 
 # 1.启动硬件
 ros2 launch my_bot_hw robot_bringup.launch.py
