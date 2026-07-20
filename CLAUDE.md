@@ -33,7 +33,7 @@ source install/setup.bash                                  # 每次新终端必�
 
 ## 包架构
 
-`src/` 下共五个包：
+`src/` 下共六个包：
 
 | 包名           | 职责                                                                    |
 | -------------- | ----------------------------------------------------------------------- |
@@ -41,6 +41,7 @@ source install/setup.bash                                  # 每次新终端必�
 | `my_bot_hw`    | ros2_control`SystemInterface` 插件 —— 与 STM32 串口通信，实机 bringup |
 | `my_bot_slam`  | SLAM Toolbox 的 launch 文件、参数配置、保存的地图                       |
 | `my_bot_nav`   | Nav2 的 launch 文件和参数文件                                           |
+| `my_bot_task`  | 任务层：召唤→上门→等待→归位业务闭环，导航卡死看门狗                    |
 | `sllidar_ros2` | 思岚 C1 激光雷达厂商驱动                                                |
 
 `my_bot` 是仿真与实机共用的机器人描述包。xacro 参数 `sim_mode` 用于在 Gazebo 差速插件和 `my_bot_hw` ros2_control 硬件接口之间切换。
@@ -95,6 +96,7 @@ TwistMux: /cmd_vel_keyboard (90) + /cmd_vel_nav (70) → /diff_cont/cmd_vel_unst
 - `src/my_bot_hw/docs/` —— 实机底盘、话题与频率、IMU 标定、激光过滤
 - `src/my_bot_slam/docs/` —— 建图 / 定位 / 存图、建图调参
 - `src/my_bot_nav/docs/` —— Nav2、NeuPAN、多地图与禁行区、调参
+- `src/my_bot_task/docs/` —— 任务层业务闭环、导航卡死看门狗
 - `docs/APP/` —— 上位机 GUI（ROS_Flutter_Gui_App）集成：后端接口、前端补丁、复现部署
 - `docs/workflows/实机同步与部署.md` —— 开发机 ↔ 开发板（**用 git，不要用 rsync**）、arm64 编译要求
 - `docs/architecture/`、`docs/workflows/` —— 仓库级架构与工作流

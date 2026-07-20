@@ -1,10 +1,10 @@
 <?xml version="1.0"?>
 <!--
   home_4rooms 的动态变体 —— 静态几何（墙体/家具/门洞）与 home_4rooms.sdf 逐字节相同，
-  只加了 5 个 Gazebo <actor> 行人，对应"6~10 人办公室"的人流密度，覆盖三类场景：
-    - 走廊交叉：corridor_walker_a / corridor_walker_b 沿走廊长轴对向往返
-    - 房间门口拦截：doorway_kitchen / doorway_storage 在门洞内外来回穿行
-    - 多人同时出现：hallway_diagonal 斜穿走廊，与上面两类的活动区间有重叠
+  只加了 5 个 Gazebo <actor> 行人，对应"6~10 人办公室"的人流密度，但按区域分配：
+    - 走廊通行：corridor_walker_a / corridor_walker_b 分走南北两条通行线
+    - 门口拦截：doorway_kitchen 只浅进出北侧门洞，不压走廊中心线
+    - 房间内活动：doorway_storage / hallway_diagonal 留在房间内，增加动态点但不和走廊行人叠甲
   world name 刻意保持 "default"（不能叫别的）—— gz_bridge.yaml 里
   /world_poses 硬编码订阅 /world/default/pose/info，改名会导致该桥接静默失效
   （对应 docs/速查.md 的不变量："Gazebo 世界名是 default，不是文件名"）。
@@ -723,7 +723,7 @@
              0.11~0.16 m）在这个高度上稳定扫得到。
         -->
 
-        <!-- 走廊交叉 A：沿走廊长轴（贴北墙一侧 y=0.35）东西往返，全程 6m。
+        <!-- 走廊通行 A：沿走廊长轴（北侧通行线 y=0.30）东西往返，全程 6m。
              速度 ~0.12 m/s —— 刻意调到和机器人自己的实测有效吞吐（基线体检测得
              ~0.05~0.2 m/s，比 NeuPAN ref_speed 0.3 慢很多）相当甚至略慢，让行人
              在机器人路径上停留够久，形成真正的"让路/等待"而不是一闪而过。
@@ -743,16 +743,16 @@
                 <loop>true</loop>
                 <auto_start>true</auto_start>
                 <trajectory id="0" type="square">
-                    <waypoint><time>0</time><pose>-3.0 0.35 0.45 0 0 0</pose></waypoint>
-                    <waypoint><time>50</time><pose>3.0 0.35 0.45 0 0 0</pose></waypoint>
-                    <waypoint><time>50.1</time><pose>3.0 0.35 0.45 0 0 3.14159</pose></waypoint>
-                    <waypoint><time>100</time><pose>-3.0 0.35 0.45 0 0 3.14159</pose></waypoint>
-                    <waypoint><time>100.1</time><pose>-3.0 0.35 0.45 0 0 0</pose></waypoint>
+                    <waypoint><time>0</time><pose>-3.0 0.30 0.45 0 0 0</pose></waypoint>
+                    <waypoint><time>50</time><pose>3.0 0.30 0.45 0 0 0</pose></waypoint>
+                    <waypoint><time>50.1</time><pose>3.0 0.30 0.45 0 0 3.14159</pose></waypoint>
+                    <waypoint><time>100</time><pose>-3.0 0.30 0.45 0 0 3.14159</pose></waypoint>
+                    <waypoint><time>100.1</time><pose>-3.0 0.30 0.45 0 0 0</pose></waypoint>
                 </trajectory>
             </script>
         </actor>
 
-        <!-- 走廊交叉 B：贴南墙一侧 y=-0.35，反相位往返，和 A 在走廊中段反复交会 -->
+        <!-- 走廊通行 B：南侧通行线 y=-0.30，和 A 横向错开，避免 actor 之间相叠 -->
         <actor name="corridor_walker_b">
             <link name="link">
                 <collision name="collision">
@@ -767,16 +767,16 @@
                 <loop>true</loop>
                 <auto_start>true</auto_start>
                 <trajectory id="0" type="square">
-                    <waypoint><time>0</time><pose>2.5 -0.35 0.45 0 0 3.14159</pose></waypoint>
-                    <waypoint><time>37.5</time><pose>-2.0 -0.35 0.45 0 0 3.14159</pose></waypoint>
-                    <waypoint><time>37.6</time><pose>-2.0 -0.35 0.45 0 0 0</pose></waypoint>
-                    <waypoint><time>75</time><pose>2.5 -0.35 0.45 0 0 0</pose></waypoint>
-                    <waypoint><time>75.1</time><pose>2.5 -0.35 0.45 0 0 3.14159</pose></waypoint>
+                    <waypoint><time>0</time><pose>2.5 -0.30 0.45 0 0 3.14159</pose></waypoint>
+                    <waypoint><time>37.5</time><pose>-2.0 -0.30 0.45 0 0 3.14159</pose></waypoint>
+                    <waypoint><time>37.6</time><pose>-2.0 -0.30 0.45 0 0 0</pose></waypoint>
+                    <waypoint><time>75</time><pose>2.5 -0.30 0.45 0 0 0</pose></waypoint>
+                    <waypoint><time>75.1</time><pose>2.5 -0.30 0.45 0 0 3.14159</pose></waypoint>
                 </trajectory>
             </script>
         </actor>
 
-        <!-- 房间门口拦截：厨房北门洞 x=0.0，在走廊和厨房之间进出 -->
+        <!-- 房间门口拦截：厨房北门洞 x=0.0，浅进出门槛但不压走廊通行线 -->
         <actor name="doorway_kitchen">
             <link name="link">
                 <collision name="collision">
@@ -791,16 +791,16 @@
                 <loop>true</loop>
                 <auto_start>true</auto_start>
                 <trajectory id="0" type="square">
-                    <waypoint><time>0</time><pose>0.0 0.3 0.45 0 0 1.5708</pose></waypoint>
-                    <waypoint><time>12.5</time><pose>0.0 1.8 0.45 0 0 1.5708</pose></waypoint>
-                    <waypoint><time>12.6</time><pose>0.0 1.8 0.45 0 0 -1.5708</pose></waypoint>
-                    <waypoint><time>25</time><pose>0.0 0.3 0.45 0 0 -1.5708</pose></waypoint>
-                    <waypoint><time>25.1</time><pose>0.0 0.3 0.45 0 0 1.5708</pose></waypoint>
+                    <waypoint><time>0</time><pose>0.0 1.75 0.45 0 0 -1.5708</pose></waypoint>
+                    <waypoint><time>10</time><pose>0.0 0.86 0.45 0 0 -1.5708</pose></waypoint>
+                    <waypoint><time>16</time><pose>0.0 0.86 0.45 0 0 1.5708</pose></waypoint>
+                    <waypoint><time>26</time><pose>0.0 1.75 0.45 0 0 1.5708</pose></waypoint>
+                    <waypoint><time>32</time><pose>0.0 1.75 0.45 0 0 -1.5708</pose></waypoint>
                 </trajectory>
             </script>
         </actor>
 
-        <!-- 房间门口拦截：储物南门洞 x=0.7，和 doorway_kitchen 错开相位 -->
+        <!-- 储物间内活动：保留动态点，但不再进入南门洞和走廊 -->
         <actor name="doorway_storage">
             <link name="link">
                 <collision name="collision">
@@ -815,17 +815,16 @@
                 <loop>true</loop>
                 <auto_start>true</auto_start>
                 <trajectory id="0" type="square">
-                    <waypoint><time>0</time><pose>0.7 -1.8 0.45 0 0 -1.5708</pose></waypoint>
-                    <waypoint><time>12.5</time><pose>0.7 -0.3 0.45 0 0 -1.5708</pose></waypoint>
-                    <waypoint><time>12.6</time><pose>0.7 -0.3 0.45 0 0 1.5708</pose></waypoint>
-                    <waypoint><time>25</time><pose>0.7 -1.8 0.45 0 0 1.5708</pose></waypoint>
-                    <waypoint><time>25.1</time><pose>0.7 -1.8 0.45 0 0 -1.5708</pose></waypoint>
+                    <waypoint><time>0</time><pose>-0.35 -2.55 0.45 0 0 0.55</pose></waypoint>
+                    <waypoint><time>22</time><pose>0.45 -2.05 0.45 0 0 0.55</pose></waypoint>
+                    <waypoint><time>36</time><pose>0.45 -2.05 0.45 0 0 -2.59</pose></waypoint>
+                    <waypoint><time>58</time><pose>-0.35 -2.55 0.45 0 0 -2.59</pose></waypoint>
+                    <waypoint><time>72</time><pose>-0.35 -2.55 0.45 0 0 0.55</pose></waypoint>
                 </trajectory>
             </script>
         </actor>
 
-        <!-- 多人同时出现：斜穿走廊，从北门洞(客厅,-2.8)到南门洞(书房,-2.2)，
-             活动区间和 corridor_walker_a/b 的往返路径重叠，制造"多人同时挡路" -->
+        <!-- 客厅内斜向活动：只在房间内移动，避免和走廊 / 门洞行人形成脚本重叠 -->
         <actor name="hallway_diagonal">
             <link name="link">
                 <collision name="collision">
@@ -840,11 +839,11 @@
                 <loop>true</loop>
                 <auto_start>true</auto_start>
                 <trajectory id="0" type="square">
-                    <waypoint><time>0</time><pose>-2.8 0.5 0.45 0 0 -2.35</pose></waypoint>
-                    <waypoint><time>10</time><pose>-2.2 -0.5 0.45 0 0 -2.35</pose></waypoint>
-                    <waypoint><time>10.1</time><pose>-2.2 -0.5 0.45 0 0 0.79</pose></waypoint>
-                    <waypoint><time>20</time><pose>-2.8 0.5 0.45 0 0 0.79</pose></waypoint>
-                    <waypoint><time>20.1</time><pose>-2.8 0.5 0.45 0 0 -2.35</pose></waypoint>
+                    <waypoint><time>0</time><pose>-3.20 1.35 0.45 0 0 0.82</pose></waypoint>
+                    <waypoint><time>18</time><pose>-2.45 2.15 0.45 0 0 0.82</pose></waypoint>
+                    <waypoint><time>34</time><pose>-2.45 2.15 0.45 0 0 -2.32</pose></waypoint>
+                    <waypoint><time>52</time><pose>-3.20 1.35 0.45 0 0 -2.32</pose></waypoint>
+                    <waypoint><time>68</time><pose>-3.20 1.35 0.45 0 0 0.82</pose></waypoint>
                 </trajectory>
             </script>
         </actor>

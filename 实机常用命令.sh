@@ -32,6 +32,8 @@ slam_toolbox/srv/SerializePoseGraph \
 # 3.nav2
 ros2 launch my_bot_nav nav.launch.py
 ros2 launch my_bot_nav nav.launch.py controller:=neupan
+# 任务层（包含nav2）
+ros2 launch my_bot_task task.launch.py
 
 # 障碍层
 ros2 launch my_bot_nav keepout.launch.py use_sim_time:=false \

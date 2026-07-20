@@ -126,7 +126,7 @@ controller_server:
       base_frame: "base_footprint"
       include_initial_path_direction: false   # 参考朝向由路径点梯度推断
       cost_threshold: 254                      # >= 此代价的栅格视为障碍 (LETHAL=254, INSCRIBED=253)
-      obstacle_stride: 1                       # 栅格抽稀步长 (1=全取; 增大可降负载)
+      obstacle_stride: 2                       # 栅格抽稀步长 (1=全取; 增大可降负载)
 
 local_costmap:
   local_costmap:
