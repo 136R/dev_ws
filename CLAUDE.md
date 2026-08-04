@@ -20,6 +20,10 @@ pgrep -af "gz sim|slam_toolbox|nav2_|bt_navigator|parameter_bridge|laser_filter|
 **有输出 = 用户正开着东西 → 停下来问，不要自己起，更不要 `kill`。**
 要清理也只清自己起的那套（记 pid），**禁止 `pkill -9 -f` 无差别扫**。
 
+## 与我协作的约定
+
+@docs/与我协作的约定.md
+
 ## 构建
 
 ```bash
@@ -35,13 +39,14 @@ source install/setup.bash                                  # 每次新终端必�
 
 `src/` 下共六个包：
 
+
 | 包名           | 职责                                                                    |
 | -------------- | ----------------------------------------------------------------------- |
 | `my_bot`       | 机器人 URDF/Xacro 描述 + Gazebo 仿真资源                                |
 | `my_bot_hw`    | ros2_control`SystemInterface` 插件 —— 与 STM32 串口通信，实机 bringup |
 | `my_bot_slam`  | SLAM Toolbox 的 launch 文件、参数配置、保存的地图                       |
 | `my_bot_nav`   | Nav2 的 launch 文件和参数文件                                           |
-| `my_bot_task`  | 任务层：召唤→上门→等待→归位业务闭环，导航卡死看门狗                    |
+| `my_bot_task`  | 任务层：召唤→上门→等待→归位业务闭环，导航卡死看门狗                  |
 | `sllidar_ros2` | 思岚 C1 激光雷达厂商驱动                                                |
 
 `my_bot` 是仿真与实机共用的机器人描述包。xacro 参数 `sim_mode` 用于在 Gazebo 差速插件和 `my_bot_hw` ros2_control 硬件接口之间切换。
@@ -74,15 +79,16 @@ TwistMux: /cmd_vel_keyboard (90) + /cmd_vel_nav (70) → /diff_cont/cmd_vel_unst
 
 ## 配置文件
 
-| 文件                                                  | 用途                                   |
-| ----------------------------------------------------- | -------------------------------------- |
-| `src/my_bot_hw/config/hw_controllers.yaml`            | 控制器频率、轮系几何校正倍数、速度限制 |
-| `src/my_bot_hw/config/ekf_hw.yaml`                    | EKF 融合权重与协方差                   |
-| `src/my_bot_hw/config/laser_filters.yaml`             | 激光雷达距离/角度过滤                  |
-| `src/my_bot_slam/config/mapper_params_{hw,sim}.yaml`  | SLAM Toolbox 调参                      |
-| `src/my_bot_nav/config/{hw,sim}/nav2_params_*_{rpp,neupan}.yaml` | Nav2 调参（**只有这四个会被加载**） |
-| `src/my_bot_nav/config/{hw,sim}/neupan_{hw,sim}.yaml` | NeuPAN 规划器调参                      |
-| `firmware/my_robot_stm32/Core/Inc/app/robot_config.h` | STM32 PI 增益、编码器 CPR、减速比、机器人几何（**唯一真相源**） |
+
+| 文件                                                             | 用途                                                            |
+| ---------------------------------------------------------------- | --------------------------------------------------------------- |
+| `src/my_bot_hw/config/hw_controllers.yaml`                       | 控制器频率、轮系几何校正倍数、速度限制                          |
+| `src/my_bot_hw/config/ekf_hw.yaml`                               | EKF 融合权重与协方差                                            |
+| `src/my_bot_hw/config/laser_filters.yaml`                        | 激光雷达距离/角度过滤                                           |
+| `src/my_bot_slam/config/mapper_params_{hw,sim}.yaml`             | SLAM Toolbox 调参                                               |
+| `src/my_bot_nav/config/{hw,sim}/nav2_params_*_{rpp,neupan}.yaml` | Nav2 调参（**只有这四个会被加载**）                             |
+| `src/my_bot_nav/config/{hw,sim}/neupan_{hw,sim}.yaml`            | NeuPAN 规划器调参                                               |
+| `firmware/my_robot_stm32/Core/Inc/app/robot_config.h`            | STM32 PI 增益、编码器 CPR、减速比、机器人几何（**唯一真相源**） |
 
 > MPPI / DWB / SmacPlanner 的旧参数与旧文档已删除（零引用、已不在技术栈内）。需要时去 git 历史找。
 
@@ -103,4 +109,3 @@ TwistMux: /cmd_vel_keyboard (90) + /cmd_vel_nav (70) → /diff_cont/cmd_vel_unst
 
 > **动代码前先读对应包的 `docs/README.md` 的「不变量」表** —— 那里列的是"违反了就出错、
 > 但从代码里看不出来"的约束。
-

@@ -20,7 +20,10 @@ src/articubot_one/
 
 # Tooling (optional)
 .codex
-.claude/
+# 注意是 .claude/* 不是 .claude/ —— git 无法重新包含被排除目录下的内容，
+# 只有忽略「目录内的条目」才能用 ! 放行其中一个子目录。
+.claude/*
+!.claude/skills/
 
 # Editor (optional)
 .vscode/
