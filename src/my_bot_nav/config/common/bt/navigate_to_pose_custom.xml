@@ -1,11 +1,24 @@
 <!--
   This Behavior Tree computes a path for a new goal, follows it, and keeps
-  checking whether the current path is still valid. It replans only when the
-  path becomes invalid or the goal changes.
+  checking whether the current path is still valid. It replans when the path
+  becomes invalid, the goal changes, OR the path is older than 5s (consistent
+  replanning) — the latter re-solves from the current pose so a wedged robot
+  can escape instead of forever reusing a stale path.
 -->
 <root main_tree_to_execute="MainTree">
   <BehaviorTree ID="MainTree">
-    <RecoveryNode number_of_retries="6" name="NavigateRecovery">
+    <!-- ⚠️ 跨包约束：这里的 number_of_retries 受 my_bot_task 的导航卡死看门狗制约。
+         nav_watchdog (src/my_bot_task/config/task_params.yaml) 判定条件是
+         「stuck_timeout_sec=30s 内位移 < min_progress_m=0.15m 就发 cancel 放弃任务」，
+         而恢复动作期间机器人位移几乎为 0(Clear 不动 / Spin 原地转 / Wait 不动 /
+         BackUp 只退 0.15m 恰好卡在临界值)——整个恢复过程都在给看门狗的计时器充电。
+         且看门狗从「机器人开始不动」起算，不是从进入恢复起算，进来前往往已经卡了一会儿。
+         按实测(2026-07-22 日志)一轮恢复 ≈ 2.2s、Spin 本身 1.8s、Wait 5s 估算：
+             N=2 ≈ 9.4s ✅   N=3 ≈ 13.4s ✅   N=4 ≈ 15.6s ✅   N=6 ≈ 20s+ ⚠️ 撞线
+         **上限 N=4，不要用 Nav2 官方默认的 6**，否则就是 task_params.yaml 里那条
+         注释警告的「跟 Nav2 自己的恢复动作打架、误报卡死」。
+         改这个数之前先回去看 task_params.yaml 的 stuck_timeout_sec。 -->
+    <RecoveryNode number_of_retries="2" name="NavigateRecovery">
 
       <!-- 改用 PipelineSequence：规划和跟踪并行，互不打断 -->
       <PipelineSequence name="NavigateWithPathValidity">
@@ -15,41 +28,70 @@
           <RecoveryNode number_of_retries="1" name="ComputePathToPose">
             <Fallback name="ComputePathIfNeeded">
               <ReactiveSequence name="CurrentPathStillValid">
+                <!-- 新增(consistent_replanning 范式)：路径存活超过 5s 就强制刷新，
+                     从当前位姿重规划。卡死时起点变了→规划器会绕开静态墙，避免一直
+                     复用从旧位姿算出的陈旧路径而死锁。5s < progress_checker 的 8s，
+                     保证在进 spin/backup 恢复前先有一次重规划脱困机会。同时这层时间
+                     滞回也把"左绕/右绕"歧义抖动的窗口从每 tick 压到最多每 5s 一次。 -->
+                <Inverter>
+                  <PathExpiringTimer seconds="3" path="{path}" />
+                </Inverter>
                 <!-- 关键修复：第一次 path 为空时跳过本分支 -->
                 <Inverter>
-                  <GlobalUpdatedGoal/>
+                  <GlobalUpdatedGoal />
                 </Inverter>
-                <IsPathValid path="{path}"/>
+                <IsPathValid path="{path}" />
               </ReactiveSequence>
-              <!-- 进入这里 = 需要规划 -->
-              <ComputePathToPose goal="{goal}" path="{path}" planner_id="GridBased"/>
+              <!-- 进入这里 = 需要规划：算完立刻用 simple_smoother 平滑一次再写回 {path}。
+                   只在重规划分支里平滑，复用旧路径时不会重复平滑。未开碰撞检查，
+                   平滑后的贴障由 NeuPAN(碰撞感知 MPC) 兜底。 -->
+              <Sequence name="ComputeThenSmooth">
+                <ComputePathToPose goal="{goal}" path="{path}" planner_id="GridBased" />
+                <SmoothPath unsmoothed_path="{path}" smoothed_path="{path}"
+                  smoother_id="simple_smoother" />
+              </Sequence>
+              <!-- 优雅降级：强制刷新时若重规划失败(如 SmacPlanner2D 在窄道逼近瞬时
+                   "起点在致命空间"而硬拒绝)，但上一条路径仍 valid，就保留旧路径继续跟，
+                   不 abort 整个导航。机器人挪出致命格后下个周期会正常重规划，自愈。
+                   ComputePathToPose 失败不会清空 {path}，故此处 IsPathValid 检的是旧路径。 -->
+              <IsPathValid path="{path}" />
             </Fallback>
-            <ClearEntireCostmap name="ClearGlobalCostmap-Context" 
-                                service_name="global_costmap/clear_entirely_global_costmap"/>
+            <ClearEntireCostmap name="ClearGlobalCostmap-Context"
+              service_name="global_costmap/clear_entirely_global_costmap" />
           </RecoveryNode>
         </RateController>
 
         <!-- 第2步：跟踪路径；跟踪失败时清 local，然后让外层重规划 -->
         <RecoveryNode number_of_retries="1" name="FollowPath">
-          <FollowPath path="{path}" controller_id="FollowPath" 
-                      goal_checker_id="general_goal_checker"/>
-          <ClearEntireCostmap name="ClearLocalCostmap-Context" 
-                              service_name="local_costmap/clear_entirely_local_costmap"/>
+          <FollowPath path="{path}" controller_id="FollowPath"
+            goal_checker_id="general_goal_checker" />
+          <ClearEntireCostmap name="ClearLocalCostmap-Context"
+            service_name="local_costmap/clear_entirely_local_costmap" />
         </RecoveryNode>
 
       </PipelineSequence>
 
       <!-- 恢复链：执行恢复后强制清空 path 触发重规划 -->
       <ReactiveFallback name="RecoveryFallback">
-        <GoalUpdated/>
+        <GoalUpdated />
+        <!-- 顺序即优先级：RoundRobin 每次外层失败只轮一个，配合上面 retries=2，
+             实际只轮得到前两个。所以把动作按"对真实动态障碍的有效性"排：
+               Wait   —— 唯一真正有效的。障碍是别人在动，等它走开。
+               Clear  —— 对真实存在的障碍无效(清完下一帧就被激光重新标记)，
+                         只对已消失却残留的"鬼影"有效，故排第一位先试(便宜、瞬时)。
+               Spin   —— 原地转不会让别人让路，主要用于重新观测/摆脱局部视野盲区。
+               BackUp —— 退 0.15m，正好等于看门狗 min_progress_m 的临界值，放最后。
+             wait_duration 2→5：实测(2026-07-22)动态障碍从压住目标到走开约需 10s，
+             2s 太短。N=2 时总恢复耗时 ≈ Clear 2.2s + (Wait 5s + 重试 2.2s) ≈ 9.4s，
+             对 30s 看门狗仍有 3 倍余量。 -->
         <RoundRobin name="RecoveryActions">
           <Sequence name="ClearingActions">
-            <ClearEntireCostmap service_name="local_costmap/clear_entirely_local_costmap"/>
-            <ClearEntireCostmap service_name="global_costmap/clear_entirely_global_costmap"/>
+            <ClearEntireCostmap service_name="local_costmap/clear_entirely_local_costmap" />
+            <ClearEntireCostmap service_name="global_costmap/clear_entirely_global_costmap" />
           </Sequence>
-          <Spin spin_dist="1.57"/>
-          <Wait wait_duration="2"/>
-          <BackUp backup_dist="0.15" backup_speed="0.025"/>
+          <Wait wait_duration="5" />
+          <Spin spin_dist="1.57" />
+          <BackUp backup_dist="0.15" backup_speed="0.025" />
         </RoundRobin>
       </ReactiveFallback>
 

@@ -91,7 +91,7 @@ controller_server:
     progress_checker:
       plugin: "nav2_controller::SimpleProgressChecker"
       required_movement_radius: 0.1
-      movement_time_allowance: 10.0
+      movement_time_allowance: 8.0    # 停住 8s 判无进度失败（配合 BT number_of_retries 封顶恢复时长）
     general_goal_checker:
       stateful: True
       plugin: "nav2_controller::SimpleGoalChecker"
@@ -248,7 +248,7 @@ planner_server:
       plugin: "nav2_theta_star_planner/ThetaStarPlanner"
       how_many_corners: 8       # 邻接数，8 是默认
       w_euc_cost: 1.5           # 欧式距离权重
-      w_traversal_cost: 2.0     # 通过代价（cost）权重——越大越远离障碍
+      w_traversal_cost: 1.5     # 通过代价（cost）权重——越大越远离障碍
       w_heuristic_cost: 1.0     # A* 启发权重
       use_final_approach_orientation: false
 
@@ -284,7 +284,7 @@ behavior_server:
     use_sim_time: True
     simulate_ahead_time: 2.0
     max_rotational_vel: 1.0
-    min_rotational_vel: 0.3
+    min_rotational_vel: 0.35
     rotational_acc_lim: 2.4
 
 robot_state_publisher:
@@ -308,10 +308,10 @@ velocity_smoother:
     smoothing_frequency: 20.0
     scale_velocities: False
     feedback: "OPEN_LOOP"
-    max_velocity: [0.32, 0.0, 3.2]
-    min_velocity: [-0.32, 0.0, -3.2]
-    max_accel: [1.2, 0.0, 2.4]
-    max_decel: [-1.2, 0.0, -2.4]
+    max_velocity: [0.37, 0.0, 3.2]
+    min_velocity: [-0.37, 0.0, -3.2]
+    max_accel: [1.1, 0.0, 2.5]
+    max_decel: [-1.1, 0.0, -2.5]
     odom_topic: "odom"
     odom_duration: 0.1
     deadband_velocity: [0.0, 0.0, 0.0]

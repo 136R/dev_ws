@@ -47,8 +47,13 @@ task_manager:
 nav_watchdog:
   ros__parameters:
     # 机器人连续这么多秒位移不超过 min_progress_m，就判定"卡死"。
-    # 要明显大于 Nav2 自己 BT 恢复行为的正常耗时（清 costmap+spin+wait 2s+backup，
-    # 正常几秒内做完），不然会跟 Nav2 自己的恢复动作打架、误报。
+    # 要明显大于 Nav2 自己 BT 恢复行为的正常耗时（清 costmap+wait 5s+spin+backup），
+    # 不然会跟 Nav2 自己的恢复动作打架、误报。
+    # ⚠️ 反向耦合：这 30s 同时给 Nav2 BT 的恢复重试次数设了上限。改小它之前，先看
+    #    src/my_bot_nav/config/common/bt/navigate_to_pose_custom.xml 的 NavigateRecovery
+    #    注释（那里按 N 列了恢复总耗时预算）。恢复期间机器人位移≈0，全程在给这个
+    #    计时器充电；两处任一方单独改动都可能让二者打架。
     stuck_timeout_sec: 30.0
+    # 注意：BT 恢复链里的 BackUp backup_dist=0.15 恰好等于这个阈值，是有意的临界设计。
     min_progress_m: 0.15
     check_period_sec: 2.0

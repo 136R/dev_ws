@@ -1,0 +1,76 @@
+<!--
+  本文件是 SmacPlanner2D 的专用版。
+  关键区别：规划器内部自带平滑功能，所以这里不再额外调用平滑步骤。
+  单独复制一份的原因：其他机器人用的是旧版逻辑，这版独立出来方便单独调参。
+  ⚠️ 节点名 "RecoveryActions" 被外部监控脚本依赖，千万别改名字。
+-->
+<root main_tree_to_execute="MainTree">
+  <BehaviorTree ID="MainTree">
+    <!-- ⚠️ 重试次数限制：
+         外部有个 30 秒卡死监控（动得太慢就算卡死）。
+         恢复动作（原地转、等、退）耗时约 10~15 秒，N=2 刚刚好，不会撞上 30 秒红线。
+         千万别改成 6，否则会被外部监控误判为卡死。 -->
+    <RecoveryNode number_of_retries="2" name="NavigateRecovery">
+
+      <!-- 并行流水线：规划路径和走路同时进行，互不打断 -->
+      <PipelineSequence name="NavigateWithPathValidity">
+
+        <!-- 第1步：规划路径（每秒检查1次） -->
+        <RateController hz="1.0">
+          <RecoveryNode number_of_retries="1" name="ComputePathToPose">
+            <Fallback name="ComputePathIfNeeded">
+              <ReactiveSequence name="CurrentPathStillValid">
+                <!-- 路径太旧（超过3秒）就强制刷新，避免死脑筋撞墙 -->
+                <Inverter>
+                  <PathExpiringTimer seconds="3" path="{path}" />
+                </Inverter>
+                <!-- 目标变了肯定要重算 -->
+                <Inverter>
+                  <GlobalUpdatedGoal />
+                </Inverter>
+                <!-- 老路径还能走就先凑合用 -->
+                <IsPathValid path="{path}" />
+              </ReactiveSequence>
+              <!-- 执行规划（内部自带平滑，出来就是顺滑的线） -->
+              <ComputePathToPose goal="{goal}" path="{path}" planner_id="GridBased" />
+              <!-- 万一规划失败（比如起点卡在墙里），旧路径还能用就别崩，等下次重试 -->
+              <IsPathValid path="{path}" />
+            </Fallback>
+            <!-- 规划失败时顺手清个全局地图缓存 -->
+            <ClearEntireCostmap name="ClearGlobalCostmap-Context"
+              service_name="global_costmap/clear_entirely_global_costmap" />
+          </RecoveryNode>
+        </RateController>
+
+        <!-- 第2步：跟着路径走 -->
+        <RecoveryNode number_of_retries="1" name="FollowPath">
+          <FollowPath path="{path}" controller_id="FollowPath"
+            goal_checker_id="general_goal_checker" />
+          <!-- 跟丢或卡住时，清掉局部地图缓存，让上层循环去重新规划 -->
+          <ClearEntireCostmap name="ClearLocalCostmap-Context"
+            service_name="local_costmap/clear_entirely_local_costmap" />
+        </RecoveryNode>
+
+      </PipelineSequence>
+
+      <!-- 抢救流程：上面的步骤彻底失败时，按顺序尝试以下自救手段 -->
+      <ReactiveFallback name="RecoveryFallback">
+        <GoalUpdated />
+        <RoundRobin name="RecoveryActions">
+          <Sequence name="ClearingActions">
+            <!-- 1. 清缓存（对付“鬼影”障碍最管用） -->
+            <ClearEntireCostmap service_name="local_costmap/clear_entirely_local_costmap" />
+            <ClearEntireCostmap service_name="global_costmap/clear_entirely_global_costmap" />
+          </Sequence>
+          <!-- 2. 原地等 5 秒（等挡路的人或车走开） -->
+          <Wait wait_duration="5" />
+          <!-- 3. 原地转半圈（换个视野找路） -->
+          <Spin spin_dist="1.57" />
+          <!-- 4. 后退一小步（换个姿势重新出发） -->
+          <BackUp backup_dist="0.15" backup_speed="0.025" />
+        </RoundRobin>
+      </ReactiveFallback>
+
+    </RecoveryNode>
+  </BehaviorTree>
+</root>

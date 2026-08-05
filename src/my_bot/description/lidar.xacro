@@ -43,10 +43,24 @@
                         <max_angle>3.14159</max_angle>
                     </horizontal>
                 </scan>
+                <!-- max 必须和 laser_filters_sim.yaml 的 upper_threshold 一起改，
+                     只改滤波器无效（源头没有的数据放行不出来）。 -->
                 <range>
                     <min>0.1</min>
-                    <max>4.0</max>
+                    <max>8.0</max>
                 </range>
+                <!-- 测距高斯噪声。stddev 取 C1 标称精度 ±30mm 的数值 0.03。
+                     ⚠️ 两个 Gazebo 限制，别拿仿真结果外推实机：
+                     1) stddev 是常数，不随距离变化 —— 真实雷达远点误差更大，
+                        所以「8m 量程会不会让定位变差」这件事仿真验不出来，只能上实机；
+                     2) gpu_lidar 不建模材质反射率，黑布/玻璃/白墙一律精确返回。
+                     加完必须验它真生效：车静止时 echo /scan 看同一索引的 range 是否抖动，
+                     每帧一模一样就是没生效（改 type="lidar" 用 CPU 版再试）。 -->
+                <noise>
+                    <type>gaussian</type>
+                    <mean>0.0</mean>
+                    <stddev>0.002</stddev>
+                </noise>
             </lidar>
         </sensor>
     </gazebo>

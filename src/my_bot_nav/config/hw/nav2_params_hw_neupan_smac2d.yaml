@@ -1,12 +1,7 @@
-# 全局: ThetaStar
-# 局部: NeuPAN (nav2_core::Controller 插件, neupan_cpp_ros::NeuPANController) —— 实机
+# 全局: SmacPlanner2D (nav2_smac_planner/SmacPlanner2D)
+# 局部: NeuPAN (nav2_core::Controller 插件, neupan_cpp_ros::NeuPANController)
 #
-# 由 nav2_params_hw_rpp.yaml 派生。仅改三处:
-#   1. controller_server 的 FollowPath 换成 RotationShimController 包 NeuPAN 插件
-#      (先原地转对齐再交给 NeuPAN 追踪+避障; config_file 指实机专属 neupan_hw.yaml)
-#   2. keepout_filter 先关闭 (首版验证 NeuPAN 导航/避障; 阶段4再启用)
-#   3. velocity_smoother 放宽到匹配 NeuPAN 限值, 以免削平 NeuPAN 输出
-# 其余全部沿用实机 RPP (use_sim_time False, /scan_filtered, footprint 0.126, ThetaStar 等)。
+# 障碍来源为 local costmap (含静态+动态+keepout 禁行区)。
 
 bt_navigator:
   ros__parameters:
@@ -14,11 +9,14 @@ bt_navigator:
     global_frame: map
     robot_base_frame: base_footprint
     odom_topic: /odometry/filtered
-    bt_loop_duration: 10
+    bt_loop_duration: 20
     default_server_timeout: 20
 
     # 全局规划器更新频率 与 行为恢复
-    default_nav_to_pose_bt_xml: /home/orangepi/dev_ws/src/my_bot_nav/config/common/bt/navigate_to_pose_custom.xml
+    # 用 smac2d 专用 BT（去掉了 SmoothPath，平滑全交给 SmacPlanner2D 内置 Smoother）。
+    # 另外 4 份配置(sim rpp/neupan + hw rpp/neupan)仍用 navigate_to_pose_custom.xml —— 它们
+    # 是 ThetaStar，没有内置平滑器，SmoothPath 是唯一的平滑环节，不能删。
+    default_nav_to_pose_bt_xml: /home/orangepi/dev_ws/src/my_bot_nav/config/common/bt/navigate_to_pose_smac2d.xml
 
     wait_for_service_timeout: 1000
     plugin_lib_names:
@@ -94,33 +92,32 @@ controller_server:
     progress_checker:
       plugin: "nav2_controller::SimpleProgressChecker"
       required_movement_radius: 0.1
-      movement_time_allowance: 8.0
+      movement_time_allowance: 8.0    # 停住 8s 判无进度失败（配合 BT number_of_retries 封顶恢复时长）
     general_goal_checker:
       stateful: True
       plugin: "nav2_controller::SimpleGoalChecker"
-      xy_goal_tolerance: 0.05        # 目标X、Y
-      yaw_goal_tolerance: 6.28       # 目标 Yaw (差速 line 跟踪不保证终点朝向)
+      xy_goal_tolerance: 0.05
+      yaw_goal_tolerance: 6.28       # 不约束 yaw (差速 line 跟踪不保证终点朝向)
 
     # ────────────────────── RotationShim(先转) + NeuPAN(追踪+避障) ──────────────────────
-    # 与仿真版(nav2_params_neupan.yaml)同款方案，已在仿真验证过：NeuPAN 是纯 MPC，没有
-    # 离散的"先原地转向对齐再走"这一档，朝向偏差大时只会甩头画弧。用 Nav2 官方
-    # RotationShimController 包一层：新路径下发时偏差超过阈值先原地转对齐，对齐后
-    # 交还给 NeuPAN 继续追踪+避障；路径中途转弯仍由 NeuPAN 平滑处理成弧线。
-    # 各参数与仿真版保持一致 (max_angular_accel 对齐本文件 velocity_smoother 的
-    # theta max_accel/max_decel=2.4；rotate_to_heading_angular_vel 用仿真验证后的 1.2)。
+    # NeuPAN 是纯 MPC，每步同时求解 v/w，朝向偏差大时只会"边走边转"成一条甩头弧线，
+    # 没有离散的"先原地转向对齐再走"这一档——这不是调参能改的，是 MPC 架构本身决定的。
+    # 用 Nav2 官方 RotationShimController 包一层：新路径下发时若朝向偏差超过阈值，
+    # shim 自己原地转对齐，对齐后把控制权交还给 NeuPAN 继续追踪+避障；路径中途的转弯
+    # 仍由 NeuPAN 平滑处理成弧线，不会逐个拐点都停下来转（不影响它在动态办公室世界里的避障能力）。
     FollowPath:
       plugin: "nav2_rotation_shim_controller::RotationShimController"
       primary_controller: "neupan_cpp_ros::NeuPANController"
-      angular_dist_threshold: 0.785398   # 45°；超过此偏差才原地转，小偏差仍交给 NeuPAN 用弧线自然纠正
+      angular_dist_threshold: 1.047   # 60°；超过此偏差才原地转，小偏差仍交给 NeuPAN 用弧线自然纠正
       forward_sampling_distance: 0.5     # 沿路径前探 0.5m 取参考点算"该往哪转"，而非只看第一个点
-      rotate_to_heading_angular_vel: 1.2 # 原地转的角速度(rad/s)
+      rotate_to_heading_angular_vel: 1.2 # 原地转的角速度(rad/s)；相对 NeuPAN 避障时的瞬时急转更保守
       max_angular_accel: 2.4             # 对齐 velocity_smoother 的 max_accel/max_decel theta，避免被削波变卡顿
       simulate_ahead_time: 1.0           # 原地转前用 costmap 模拟这段时间内是否会撞（shim 自带碰撞检测）
       rotate_to_goal_heading: false      # 终点朝向不约束，沿用 yaw_goal_tolerance: 6.28 的既有设定
 
       # —— 以下为 primary_controller(NeuPAN) 自身参数，与 shim 参数平铺在同一 FollowPath 命名空间 ——
       config_package: "my_bot_nav"                             # 相对路径按此包 share 解析
-      config_file: "config/hw/neupan_hw.yaml"                 # 实机专属 NeuPAN 调参 (与模型几何一致)
+      config_file: "config/hw/neupan_hw.yaml"               # NeuPAN 规划器调参 (与模型几何一致)
       dune_checkpoint: "config/common/neupan/diff_mybot.bin"  # 用户自训模型
       map_frame: "map"
       base_frame: "base_footprint"
@@ -142,10 +139,9 @@ local_costmap:
       resolution: 0.05
 
       # footprint: "[[0.035, 0.101], [0.035, -0.101], [-0.089, -0.101], [-0.089, 0.101]]"
-      footprint: "[[0.05, 0.126], [0.05, -0.126], [-0.104, -0.126], [-0.104, 0.126]]"
+      footprint: "[[0.05, 0.121], [0.05, -0.121], [-0.104, -0.121], [-0.104, 0.121]]"
 
-      # 阶段4启用 keepout: 把下一行替换为含 keepout_filter 的版本
-      plugins: ["voxel_layer", "keepout_filter", "inflation_layer"]
+      plugins: ["obstacle_layer", "keepout_filter", "inflation_layer"]
       keepout_filter:
         plugin: "nav2_costmap_2d::KeepoutFilter"
         enabled: True
@@ -153,16 +149,10 @@ local_costmap:
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 6.0
-        inflation_radius: 0.2
-      voxel_layer:
-        plugin: "nav2_costmap_2d::VoxelLayer"
+        inflation_radius: 0.17
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
         enabled: True
-        publish_voxel_map: True
-        origin_z: 0.0
-        z_resolution: 0.05
-        z_voxels: 16
-        max_obstacle_height: 2.0
-        mark_threshold: 0
         observation_sources: scan
         scan:
           topic: /scan_filtered
@@ -170,6 +160,10 @@ local_costmap:
           clearing: True
           marking: True
           data_type: "LaserScan"
+          # ⚠️ 必须 true。laser_filters 把超量程点替换成 +inf，默认 false 会整条丢弃
+          # inf 射线，而清除障碍靠射线穿过格子 → 障碍标了永远清不掉。
+          inf_is_valid: true
+          # 不随雷达量程放大：本层被 3×3 窗口卡在 1.5m 半径，2.5 已经超出窗口了。
           raytrace_max_range: 3.0
           raytrace_min_range: 0.0
           obstacle_max_range: 2.5
@@ -193,7 +187,6 @@ global_costmap:
 
       resolution: 0.05
       track_unknown_space: true
-      # 阶段4启用 keepout: 把下一行替换为含 keepout_filter 的版本
       plugins: ["static_layer", "obstacle_layer", "keepout_filter", "inflation_layer"]
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
@@ -205,6 +198,13 @@ global_costmap:
           clearing: True
           marking: True
           data_type: "LaserScan"
+          # 同 local_costmap 的说明。全局层这条更要紧：动态障碍(人)被标进全局图后
+          # 若清不掉，SmacPlanner2D 会一直绕着一个【已经走开的人】规划，"绕路比"就是
+          # 这么来的。global 只有 1Hz 更新，残留一次就要多绕好几秒。
+          inf_is_valid: true
+          # 全局层负责【选路线】，探测距离要够跨一个房间才能提前改道。
+          # raytrace 要显著大于 obstacle：本层只有 1Hz，人走 1.2m/s 时标记天然滞后，
+          # 清除范围留余量才追得上，否则人走了标记还在 → 绕着不存在的障碍规划。
           raytrace_max_range: 8.0
           raytrace_min_range: 0.0
           obstacle_max_range: 7.0
@@ -218,15 +218,15 @@ global_costmap:
         filter_info_topic: "/costmap_filter_info"
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 6.0
+        cost_scaling_factor: 3.5
         inflation_radius: 0.2
       always_send_full_costmap: True
 
-# Keepout 禁行区滤波信息服务（阶段4随实机 keepout 流程使用）
+# Keepout 禁行区滤波信息服务（随 keepout.launch.py 启动）
 costmap_filter_info_server:
   ros__parameters:
     use_sim_time: False
-    type: 0
+    type: 0                                  # 0 = keepout/preferred-lane 滤波
     filter_info_topic: "/costmap_filter_info"
     mask_topic: "/keepout_filter_mask"
     base: 0.0
@@ -250,13 +250,31 @@ planner_server:
     expected_planner_frequency: 1.0
     use_sim_time: False
     planner_plugins: ["GridBased"]
+    # 插件名保持 "GridBased" 不变——BT 里 ComputePathToPose 的 planner_id="GridBased" 才对得上
     GridBased:
-      plugin: "nav2_theta_star_planner/ThetaStarPlanner"
-      how_many_corners: 8       # 邻接数，8 是默认
-      w_euc_cost: 1.5           # 欧式距离权重
-      w_traversal_cost: 2.0     # 通过代价（cost）权重——越大越远离障碍
-      w_heuristic_cost: 1.0     # A* 启发权重
+      plugin: "nav2_smac_planner/SmacPlanner2D"
+      # 到不了精确目标时, 可接受的退让距离(m)。原为 0.05(仅 1 格) —— 等于要求目标格
+      # 必须精确可通行, 一旦动态障碍压上目标就直接 "no valid path found" 整个导航失败。
+      # 2026-07-22 实测: 移动障碍压住目标 (-2.97,1.52) 时该格 cost=254, 需 >=0.10m 才
+      # 够得着; 0.125 只剩半格余量, 故取 0.25(5 格)。
+      # 调大无实质代价: goal_checker 的 xy_goal_tolerance=0.05 独立判定是否到达, 规划
+      # 终点退让不会让机器人误以为到点, 它会开过去→发现没到→继续重规划, 等障碍走开后
+      # 自然收敛到真目标。
+      tolerance: 0.25
+      downsample_costmap: false         # 不降采样 costmap（分辨率已 0.05，够用）
+      downsampling_factor: 1
+      allow_unknown: true               # 允许穿未知区域（track_unknown_space=true，避免局部无解）
+      max_iterations: 1000000           # 搜索迭代上限（放大防大地图早退）
+      max_on_approach_iterations: 1000  # 接近目标后允许的额外迭代
+      max_planning_time: 1.0            # 单次规划超时(s)
+      cost_travel_multiplier: 2.5       # 通过代价权重：越大越偏好远离障碍的低代价栅格（离障余量↑）
       use_final_approach_orientation: false
+      smoother:                         # SmacPlanner2D 自带的路径平滑。现在是唯一的平滑环节
+                                        # ——BT 已换成 navigate_to_pose_smac2d.xml，没有 SmoothPath 了。
+        max_iterations: 1000
+        w_smooth: 0.1                   # 平滑项权重（越大越平滑，可能偏离原路径）
+        w_data: 0.5                     # 贴合原始路径权重
+        tolerance: 1.0e-10
 
 smoother_server:
   ros__parameters:
@@ -289,9 +307,9 @@ behavior_server:
     transform_tolerance: 0.1
     use_sim_time: False
     simulate_ahead_time: 2.0
-    max_rotational_vel: 0.6
-    min_rotational_vel: 0.2
-    rotational_acc_lim: 1.5
+    max_rotational_vel: 1.0
+    min_rotational_vel: 0.35
+    rotational_acc_lim: 2.4
 
 robot_state_publisher:
   ros__parameters:
@@ -314,10 +332,10 @@ velocity_smoother:
     smoothing_frequency: 20.0
     scale_velocities: False
     feedback: "OPEN_LOOP"
-    max_velocity: [0.32, 0.0, 3.2]
-    min_velocity: [-0.32, 0.0, -3.2]
-    max_accel: [1.2, 0.0, 2.4]
-    max_decel: [-1.2, 0.0, -2.4]
+    max_velocity: [0.37, 0.0, 3.2]
+    min_velocity: [-0.37, 0.0, -3.2]
+    max_accel: [1.1, 0.0, 2.5]
+    max_decel: [-1.1, 0.0, -2.5]
     odom_topic: "odom"
     odom_duration: 0.1
     deadband_velocity: [0.0, 0.0, 0.0]

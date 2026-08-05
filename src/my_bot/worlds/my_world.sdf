@@ -617,14 +617,14 @@
                 <collision name="collision">
                     <geometry>
                         <box>
-                            <size>0.60 0.03 0.40</size>
+                            <size>0.4 0.03 0.40</size>
                         </box>
                     </geometry>
                 </collision>
                 <visual name="visual">
                     <geometry>
                         <box>
-                            <size>0.60 0.03 0.40</size>
+                            <size>0.4 0.03 0.40</size>
                         </box>
                     </geometry>
                     <material>
@@ -638,14 +638,14 @@
                 <collision name="collision">
                     <geometry>
                         <box>
-                            <size>0.60 0.03 0.40</size>
+                            <size>0.4 0.03 0.40</size>
                         </box>
                     </geometry>
                 </collision>
                 <visual name="visual">
                     <geometry>
                         <box>
-                            <size>0.60 0.03 0.40</size>
+                            <size>0.4 0.03 0.40</size>
                         </box>
                     </geometry>
                     <material>

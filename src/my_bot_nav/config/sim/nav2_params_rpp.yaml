@@ -127,8 +127,8 @@ controller_server:
       # 这是 RPP 替代 RotationShim 的内置功能，差速车强烈建议开启
       use_rotate_to_heading: true
       rotate_to_heading_min_angle: 0.349        # 偏差 > 20° 时先原地转
-      rotate_to_heading_angular_vel: 0.8        # 原地转的角速度
-      max_angular_accel: 1.5                    # 对齐 velocity_smoother 的 1.5
+      rotate_to_heading_angular_vel: 1.2        # 原地转的角速度
+      max_angular_accel: 2.4                    # 对齐 velocity_smoother 的 1.5
 
       # —— 碰撞检测（前瞻撞墙就停）——
       use_collision_detection: false
@@ -300,9 +300,9 @@ behavior_server:
     transform_tolerance: 0.1
     use_sim_time: True
     simulate_ahead_time: 2.0
-    max_rotational_vel: 0.8
+    max_rotational_vel: 1.2
     min_rotational_vel: 0.3
-    rotational_acc_lim: 1.5
+    rotational_acc_lim: 2.4
 
 robot_state_publisher:
   ros__parameters:
@@ -325,10 +325,10 @@ velocity_smoother:
     smoothing_frequency: 20.0
     scale_velocities: False
     feedback: "OPEN_LOOP"
-    max_velocity: [0.3, 0.0, 0.8]
-    min_velocity: [-0.3, 0.0, -0.8]
-    max_accel: [0.8, 0.0, 1.5]
-    max_decel: [-0.8, 0.0, -1.5]
+    max_velocity: [0.3, 0.0, 1.2]
+    min_velocity: [-0.3, 0.0, -1.2]
+    max_accel: [1.0, 0.0, 2.4]
+    max_decel: [-1.0, 0.0, -2.4]
     odom_topic: "odom"
     odom_duration: 0.1
     deadband_velocity: [0.0, 0.0, 0.0]

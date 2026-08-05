@@ -44,7 +44,7 @@ slam_toolbox:
     resolution: 0.05
     min_laser_range: 0.1
     # max_laser_range: 参与建图的激光最大有效距离(米)。调大→利用远点、回环更易但远点噪声大；调小→只信近处更稳但信息少
-    max_laser_range: 4.0
+    max_laser_range: 8.0
     minimum_time_interval: 0.1
     transform_timeout: 0.5
     tf_buffer_duration: 30.0
@@ -101,6 +101,6 @@ slam_toolbox:
     use_response_expansion: true
 
     # min_pass_through: 栅格被判占用/空闲前需穿过的激光束数（防杂散光污染地图）。调大→更抗噪但更新慢；调小→更新快但易受噪声
-    min_pass_through: 2
+    min_pass_through: 4
     # occupancy_threshold: 命中/穿过光束比超过此值才标记为占用(0~1)。调大→地图更"空"（薄障碍易丢）；调小→障碍更"实"但易残噪
     occupancy_threshold: 0.15

@@ -74,7 +74,7 @@ def generate_launch_description():
             "base_frame": "base_footprint",
             "lidar_frame": "laser_frame",
             "control_rate": ParameterValue(control_rate, value_type=float),
-            "scan_range_max": 4.0,
+            "scan_range_max": 8.0,
             # 允许后续新目标刷新参考路径（默认 false 会锁定首条路径、忽略新目标）
             "refresh_initial_path": True,
             "use_sim_time": use_sim_time,

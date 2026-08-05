@@ -14,10 +14,11 @@ ros2 run rqt_reconfigure rqt_reconfigure
 # 键盘控制 - 设目标速度
 ros2 run teleop_twist_keyboard teleop_twist_keyboard \
   --ros-args -r cmd_vel:=/cmd_vel_keyboard \
-  -p speed:=0.2 -p turn:=0.6
+  -p speed:=0.25 -p turn:=0.8
 
 # 1 启动gazebo
 ros2 launch my_bot launch_sim.launch.py
+# gazebo ctrl+c 结束未杀死执行：pkill -9 -f "^gz sim -s"
 # 2 slam（localization 的地图取自 ~/.maps/current_map，可用 map:=<名字> 覆盖）
 ros2 launch my_bot_slam slam.launch.py use_sim_time:=true mode:=mapping
 ros2 launch my_bot_slam slam.launch.py use_sim_time:=true mode:=localization
@@ -28,6 +29,10 @@ ros2 run rviz2 rviz2 --ros-args -p use_sim_time:=true
 # 4 nav2
 ros2 launch my_bot_nav nav.launch.py use_sim_time:=true
 ros2 launch my_bot_nav nav.launch.py use_sim_time:=true controller:=neupan
+ros2 launch my_bot_nav nav.launch.py use_sim_time:=true \
+  params_file:=/home/bingda/dev_ws/src/my_bot_nav/config/sim/nav2_params_neupan_smac2d.yaml
+ros2 launch my_bot_nav nav.launch.py use_sim_time:=true map:=my_world_8m \
+  params_file:=/home/bingda/dev_ws/src/my_bot_nav/config/sim/nav2_params_neupan_smac2d.yaml
 # 单独起禁行区流水线（一般不用，nav.launch.py 已包含）
 ros2 launch my_bot_nav keepout.launch.py use_sim_time:=true
 # 任务层（包含nav2）
@@ -51,7 +56,7 @@ ros2 launch my_bot_nav neupan.launch.py use_sim_time:=true   config_file:=$(ros2
 
 # 调试全局规划
 ros2 action send_goal /compute_path_to_pose nav2_msgs/action/ComputePathToPose \
-  "{goal: {header: {frame_id: 'map'}, pose: {position: {x: 1.4, y: -0.2, z: 0.0}, orientation: {w: 1.0}}}}"
+  "{goal: {header: {frame_id: 'map'}, pose: {position: {x: 1.6, y: -0.4, z: 0.0}, orientation: {w: 1.0}}}}"
 
 ros2 action send_goal /compute_path_to_pose nav2_msgs/action/ComputePathToPose   "{goal: {header: {frame_id: 'map'}, pose: {position: {x: 1.5, y: -0.8, z: 0.0}, orientation: {w: 1.0}}}}"
 
@@ -79,3 +84,15 @@ ros2 action send_goal /navigate_to_pose nav2_msgs/action/NavigateToPose \
 ros2 action send_goal /navigate_to_pose nav2_msgs/action/NavigateToPose "{}" &  # 占位
 # 或更直接：
 ros2 topic pub --once /behavior_server/cancel_all_goals action_msgs/msg/GoalInfo "{}"
+
+
+# Begin navigating from current location
+
+
+# direct 模式 —— 你说的那种单独跑 nav 的情况
+ros2 run my_bot_task baseline_metrics.py --ros-args \
+  -p use_sim_time:=true -p repeat:=2
+
+# task 模式 —— 起了 task.launch.py 时
+ros2 run my_bot_task baseline_metrics.py --ros-args \
+  -p use_sim_time:=true -p repeat:=3

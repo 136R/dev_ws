@@ -2,13 +2,14 @@ laser_filter:
   ros__parameters:
     filter1:
       # ── 1. 距离范围过滤 ────────────────────────────────────────────────
-      # 去掉 C1 盲区近点（< 0.10m）和超出有效量程的远点（> 5.0m）
-      # 超出范围的点替换为 ±inf，slam_toolbox / Nav2 会自动忽略 inf 值
+      # 去掉盲区近点和超出量程的远点，超出范围的点替换为 ±inf。
+      # ⚠️ 这里产生的 +inf 要求 costmap 侧设 inf_is_valid: true，否则 inf 射线被整条
+      #    丢弃 → 障碍标了清不掉（见 nav2_params_*.yaml）。
       name: 'range_filter'
       type: 'laser_filters/LaserScanRangeFilter'
       params:
         use_message_range_limits: false
         lower_threshold: 0.1          # 低于此距离视为盲区噪点（米）
-        upper_threshold: 4.0           # 高于此距离视为无效远点（米）
+        upper_threshold: 8.0          # 必须与 lidar.xacro 的 <max> 一致
         lower_replacement_value: -.inf
         upper_replacement_value: .inf
