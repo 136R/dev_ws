@@ -118,7 +118,7 @@ int main(void)
   /* 验证电机方向时需注释不启动闭环 */
   motor_controller_init();
 //  debug_uart_init();
-  HAL_Delay(1000);
+  HAL_Delay(2500);
   imu_init();
   imu_calibrate_gyro_bias();   /* blocking, robot must be stationary */
   battery_init();              /* ADC self-cal + latch VREFEN, must precede TIM6 */

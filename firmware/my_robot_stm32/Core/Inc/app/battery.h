@@ -22,9 +22,29 @@
 #define BATTERY_DIV_R2_KOHM     10.0f
 
 /* Compile-time gain trim from the multimeter calibration.
- * Two-pass procedure: flash with 1.0f, compare against a multimeter,
- * set this to (multimeter / firmware reading), flash again. */
-#define BATTERY_GAIN_CORR       1.0f
+ *
+ * Calibrated 2026-08-07 against a 0.01 V resolution multimeter probing the
+ * battery input connector, with the full ROS stack running (controllers +
+ * lidar + EKF).  Two independent points:
+ *      12.44 / 12.301  = 1.01179   (4 samples)
+ *      12.30 / 12.1732 = 1.01042   (122 samples over 62 s)
+ * Mean 1.0111; back-substituted residuals are -0.003 V and +0.008 V.
+ *
+ * ⚠️ Load-dependent.  An earlier point taken with only the MCU powered
+ * (no ROS stack) gave 1.0070 — noticeably lower.  The multimeter probes the
+ * battery terminal while the ADC sees a divider downstream of the cabling
+ * and connectors, so a heavier load drops more voltage in between and the
+ * firmware reads lower.  This constant therefore encodes the *operating*
+ * load, which is the right choice: the low-battery return-to-base decision
+ * is made with the stack running.  Re-calibrate if the power path changes.
+ *
+ * ⚠️ Single operating point — linearity is NOT verified.  A bench supply
+ * was available but not used, so 10~11 V (exactly where the low-battery
+ * threshold will sit) rests on the assumption that the error is pure gain
+ * with no offset term.  If return-to-base later triggers early or late,
+ * suspect this first: sweep a bench supply across three points and check
+ * whether the ratio stays constant. */
+#define BATTERY_GAIN_CORR       1.0111f
 
 /* One sample burst every 500 ms — matches the 2 Hz 0x03 protocol frame */
 #define BATTERY_SAMPLE_PERIOD_MS   500u
