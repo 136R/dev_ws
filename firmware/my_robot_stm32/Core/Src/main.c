@@ -33,6 +33,7 @@
 #include "app/imu.h"
 #include "app/comm_protocol.h"
 #include "app/ws2812.h"
+#include "app/battery.h"
 //#include "app/motor_driver.h"
 //#include "app/robot_config.h"
 /* USER CODE END Includes */
@@ -120,6 +121,7 @@ int main(void)
   HAL_Delay(1000);
   imu_init();
   imu_calibrate_gyro_bias();   /* blocking, robot must be stationary */
+  battery_init();              /* ADC self-cal + latch VREFEN, must precede TIM6 */
   comm_protocol_init();
   HAL_TIM_Base_Start_IT(&htim6);
   WS2812_Force_Off_PA10();  /* 关闭LED灯 */
@@ -133,6 +135,10 @@ int main(void)
 	motor_controller_set_target(
 		comm_protocol_get_left_rad_s(),
 		comm_protocol_get_right_rad_s());
+
+	/* Blocking ADC read (~0.3 ms), self-gated to 2 Hz.
+	 * Must stay out of the TIM6 ISR — see battery.h. */
+	battery_tick();
 
 //	motor_controller_set_target(
 //		PWM_L,

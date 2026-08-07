@@ -15,11 +15,24 @@
  *         gyro_xyz     int32 LE × 3  [urad/s]
  *         yaw_mdeg     int32 LE      [millidegrees, Fusion AHRS Euler yaw]
  *   Note: mag field removed — ICM-42688-P is 6-axis (no magnetometer)
+ *
+ * TYPE 0x03  STM32→ROS2  Battery  (13 bytes total, 2 Hz)
+ *   DATA: voltage_mv   uint16 LE
+ *         current_ma   int16  LE   (always 0 in v1)
+ *         flags        uint8       (bit0 voltage_valid, bit1 current_valid,
+ *                                   bit2 vrefint_ok)
+ *         proto_ver    uint8       (COMM_PROTO_VER)
+ *         reserved     uint16 LE
+ *   Sent as a separate frame rather than extending 0x02 on purpose: an old
+ *   ROS side simply skips an unknown type, whereas a longer 0x02 would fail
+ *   its length check on every frame and take the whole hardware interface
+ *   down after 0.5 s.
  */
 
 #include "app/comm_protocol.h"
 #include "app/motor_controller.h"
 #include "app/imu.h"
+#include "app/battery.h"
 #include "usart.h"
 #include <math.h>
 #include <string.h>
@@ -28,9 +41,20 @@
 
 static uint8_t rx_buf[COMM_RX_BUF_SIZE];
 
-/* TX buffer must be static: DMA reads it after HAL_UART_Transmit_DMA returns */
-static uint8_t tx_buf[COMM_FEEDBACK_FRAME_SIZE];
+/* TX buffer must be static: DMA reads it after HAL_UART_Transmit_DMA returns.
+ * Sized for 0x02 plus an appended 0x03 (41 + 13 = 54 bytes, 4.7 ms at
+ * 115200 baud — still well inside the 10 ms tick). */
+static uint8_t tx_buf[COMM_FEEDBACK_FRAME_SIZE + COMM_BATTERY_FRAME_SIZE];
 static volatile uint8_t tx_busy = 0;   /* 1 while DMA TX is in progress */
+
+/* Encoder deltas pending transmission.  Accumulated every tick and cleared
+ * only once the DMA has accepted the frame, so a busy TX delays odometry by
+ * one tick instead of dropping it.  ISR-only, hence no volatile. */
+static int32_t s_left_acc  = 0;
+static int32_t s_right_acc = 0;
+
+static uint32_t s_battery_ticks   = 0u;
+static uint8_t  s_battery_pending = 0u;
 
 static volatile float g_target_left_rad_s  = 0.0f;
 static volatile float g_target_right_rad_s = 0.0f;
@@ -64,6 +88,13 @@ static void pack_i32(uint8_t *buf, int32_t val)
     buf[1] = (uint8_t)((val >>  8) & 0xFF);
     buf[2] = (uint8_t)((val >> 16) & 0xFF);
     buf[3] = (uint8_t)((val >> 24) & 0xFF);
+}
+
+/* Pack uint16 little-endian into buf */
+static void pack_u16(uint8_t *buf, uint16_t val)
+{
+    buf[0] = (uint8_t)( val       & 0xFF);
+    buf[1] = (uint8_t)((val >> 8) & 0xFF);
 }
 
 /* Unpack int16 little-endian from buf */
@@ -117,6 +148,10 @@ void comm_protocol_init(void)
     g_target_right_rad_s = 0.0f;
     g_watchdog_ticks = 0u;
     tx_busy = 0;
+    s_left_acc  = 0;
+    s_right_acc = 0;
+    s_battery_ticks   = 0u;
+    s_battery_pending = 0u;
     memset((void *)g_acc_mms2,    0, sizeof(g_acc_mms2));
     memset((void *)g_gyro_urad_s, 0, sizeof(g_gyro_urad_s));
     memset(rx_buf, 0, sizeof(rx_buf));
@@ -150,16 +185,30 @@ void comm_protocol_tick(int32_t left_delta, int32_t right_delta)
         }
     }
 
-    /* ── 3. Transmit raw feedback at 100 Hz ── */
+    /* ── 3. Accumulate encoder deltas ──
+     * Unconditionally, before any early return: these counts are cleared
+     * only after the DMA has taken the frame, so a busy TX postpones them
+     * rather than throwing them away. */
+    s_left_acc  += left_delta;
+    s_right_acc += right_delta;
+
+    /* ── 4. Battery frame pacing (2 Hz) ── */
+    s_battery_ticks++;
+    if (s_battery_ticks >= COMM_BATTERY_PERIOD_TICKS) {
+        s_battery_ticks = 0u;
+        s_battery_pending = 1u;
+    }
+
+    /* ── 5. Transmit ── */
     if (tx_busy) {
-        /* Previous DMA TX still running — skip this cycle to avoid corruption */
+        /* Previous DMA TX still running — everything stays pending */
         return;
     }
 
-    /* Build payload (36 bytes): encoder(8) + accel(12) + gyro(12) + yaw(4) */
+    /* Build 0x02 payload (36 bytes): encoder(8) + accel(12) + gyro(12) + yaw(4) */
     uint8_t payload[COMM_FEEDBACK_LEN];
-    pack_i32(&payload[0],  left_delta);
-    pack_i32(&payload[4],  right_delta);
+    pack_i32(&payload[0],  s_left_acc);
+    pack_i32(&payload[4],  s_right_acc);
     pack_i32(&payload[8],  g_acc_mms2[0]);
     pack_i32(&payload[12], g_acc_mms2[1]);
     pack_i32(&payload[16], g_acc_mms2[2]);
@@ -176,9 +225,38 @@ void comm_protocol_tick(int32_t left_delta, int32_t right_delta)
     memcpy(&tx_buf[4], payload, COMM_FEEDBACK_LEN);
     tx_buf[4 + COMM_FEEDBACK_LEN] = calc_xor(COMM_TYPE_FEEDBACK, COMM_FEEDBACK_LEN, payload);
 
+    uint16_t tx_len = COMM_FEEDBACK_FRAME_SIZE;
+
+    /* Append 0x03 into the same buffer so both frames go out in one DMA
+     * burst — no contention with 0x02, and no tick ever skips odometry. */
+    if (s_battery_pending) {
+        uint32_t snap = battery_get_snapshot();
+
+        uint8_t bat[COMM_BATTERY_LEN];
+        pack_u16(&bat[0], BATTERY_SNAP_MV(snap));
+        pack_u16(&bat[2], 0u);                      /* current_ma — v1 has none */
+        bat[4] = BATTERY_SNAP_FLAGS(snap);
+        bat[5] = COMM_PROTO_VER;
+        pack_u16(&bat[6], 0u);                      /* reserved */
+
+        uint8_t *f = &tx_buf[COMM_FEEDBACK_FRAME_SIZE];
+        f[0] = COMM_HEADER_1;
+        f[1] = COMM_HEADER_2;
+        f[2] = COMM_TYPE_BATTERY;
+        f[3] = COMM_BATTERY_LEN;
+        memcpy(&f[4], bat, COMM_BATTERY_LEN);
+        f[4 + COMM_BATTERY_LEN] = calc_xor(COMM_TYPE_BATTERY, COMM_BATTERY_LEN, bat);
+
+        tx_len += COMM_BATTERY_FRAME_SIZE;
+    }
+
     tx_busy = 1;
-    if (HAL_UART_Transmit_DMA(&huart1, tx_buf, COMM_FEEDBACK_FRAME_SIZE) != HAL_OK) {
-        tx_busy = 0;  /* DMA busy or error — allow retry next cycle */
+    if (HAL_UART_Transmit_DMA(&huart1, tx_buf, tx_len) != HAL_OK) {
+        tx_busy = 0;  /* DMA busy or error — retry next cycle, nothing lost */
+    } else {
+        s_left_acc  = 0;
+        s_right_acc = 0;
+        s_battery_pending = 0u;
     }
 }
 
