@@ -2,7 +2,7 @@
 """STM32 serial protocol acceptance helper.
 
 Supports:
-- listen: monitor 0x02 feedback frames and report frequency / checksum errors
+- listen: monitor 0x02 feedback + 0x03 battery frames, report rate / checksum errors
 - send: repeatedly send 0x01 velocity commands
 - watchdog-test: drive for a short duration, then stop sending and observe feedback
 
@@ -12,10 +12,15 @@ Supports:
 
 python3 /home/orangepi/dev_ws/src/my_bot_hw/tools/serial_protocol_check.py \
   --port /dev/ttyS7 --baudrate 115200 listen
-看两点：
+看三点：
 
-summary 里的 rate 应接近 50 Hz
+summary 里的 feedback rate 应接近 100 Hz
+battery rate 应接近 2 Hz
 bad_frames 应长期保持 0
+
+标定电池增益（BATTERY_GAIN_CORR）时加 --battery-only，只刷电压和峰峰值：
+
+python3 .../serial_protocol_check.py --port /dev/ttyS7 listen --battery-only
 
 ---
 
@@ -63,11 +68,28 @@ COMM_HEADER_1 = 0xAA
 COMM_HEADER_2 = 0x55
 COMM_TYPE_VEL_CMD = 0x01
 COMM_TYPE_FEEDBACK = 0x02
+COMM_TYPE_BATTERY = 0x03
 COMM_VEL_CMD_LEN = 4
-COMM_FEEDBACK_LEN = 44
+# 0x02: left_delta(4) + right_delta(4) + acc_xyz(12) + gyro_xyz(12) + yaw_mdeg(4)
+# mag 字段已随 ICM-42688-P（6 轴）从固件删除
+COMM_FEEDBACK_LEN = 36
+# 0x03: voltage_mv(u16) + current_ma(i16) + flags(u8) + proto_ver(u8) + reserved(u16)
+COMM_BATTERY_LEN = 8
 COMM_VEL_FRAME_SIZE = 9
-COMM_FEEDBACK_FRAME_SIZE = 49
+COMM_FEEDBACK_FRAME_SIZE = 41
+COMM_BATTERY_FRAME_SIZE = 13
+COMM_PROTO_VER = 1
 COUNTS_PER_REV = 68000.0
+
+BATTERY_FLAG_VOLTAGE_VALID = 0x01
+BATTERY_FLAG_CURRENT_VALID = 0x02
+BATTERY_FLAG_VREFINT_OK = 0x04
+
+# 帧型 -> payload 长度，扫描器用它判断一帧要不要继续等字节
+FRAME_PAYLOAD_LEN = {
+    COMM_TYPE_FEEDBACK: COMM_FEEDBACK_LEN,
+    COMM_TYPE_BATTERY: COMM_BATTERY_LEN,
+}
 
 RUNNING = True
 
@@ -99,7 +121,7 @@ class FeedbackFrame:
     right_delta: int
     accel_mms2: tuple[int, int, int]
     gyro_urad_s: tuple[int, int, int]
-    mag_nt: tuple[int, int, int]
+    yaw_mdeg: int
 
     @property
     def left_rad(self) -> float:
@@ -108,6 +130,26 @@ class FeedbackFrame:
     @property
     def right_rad(self) -> float:
         return self.right_delta / COUNTS_PER_REV * 2.0 * math.pi
+
+
+@dataclass
+class BatteryFrame:
+    voltage_mv: int
+    current_ma: int
+    flags: int
+    proto_ver: int
+
+    @property
+    def voltage_v(self) -> float:
+        return self.voltage_mv / 1000.0
+
+    @property
+    def voltage_valid(self) -> bool:
+        return bool(self.flags & BATTERY_FLAG_VOLTAGE_VALID)
+
+    @property
+    def vrefint_ok(self) -> bool:
+        return bool(self.flags & BATTERY_FLAG_VREFINT_OK)
 
 
 class SerialPort:
@@ -189,48 +231,74 @@ def baudrate_to_termios(baudrate: int) -> int:
     return mapping[baudrate]
 
 
-class FeedbackParser:
+class FrameParser:
+    """多帧型扫描器（0x02 反馈 + 0x03 电池）。
+
+    关键点：识别出帧型但字节还没收齐时必须 break 等更多数据，**不能** i++。
+    单帧长假设下的 i++ 会扫掉半截正在接收的 0x02 帧，造成偶发丢帧。
+    只有未知帧型、长度字段对不上、或校验失败才前进一个字节重新找头。
+    """
+
     def __init__(self) -> None:
         self.buffer = bytearray()
         self.bad_frames = 0
         self.total_bytes = 0
 
-    def feed(self, chunk: bytes) -> list[FeedbackFrame]:
+    def feed(self, chunk: bytes) -> tuple[list[FeedbackFrame], list[BatteryFrame]]:
         self.buffer.extend(chunk)
         self.total_bytes += len(chunk)
-        frames: list[FeedbackFrame] = []
+        feedback: list[FeedbackFrame] = []
+        battery: list[BatteryFrame] = []
 
-        while len(self.buffer) >= COMM_FEEDBACK_FRAME_SIZE:
+        while True:
+            # 至少要能看到 header(2) + type(1) + len(1) 再多 1 字节才值得判断
+            if len(self.buffer) < 5:
+                break
+
             if self.buffer[0] != COMM_HEADER_1 or self.buffer[1] != COMM_HEADER_2:
                 del self.buffer[0]
                 continue
 
-            frame = self.buffer[:COMM_FEEDBACK_FRAME_SIZE]
-            if frame[2] != COMM_TYPE_FEEDBACK or frame[3] != COMM_FEEDBACK_LEN:
+            msg_type = self.buffer[2]
+            expected_len = FRAME_PAYLOAD_LEN.get(msg_type)
+
+            if expected_len is None or self.buffer[3] != expected_len:
+                # 未知帧型或长度字段不符 —— 不是帧头，前进一字节
+                if expected_len is not None:
+                    self.bad_frames += 1
+                del self.buffer[0]
+                continue
+
+            frame_size = 5 + expected_len
+            if len(self.buffer) < frame_size:
+                break  # 帧型已识别，只是还没收全 —— 等下一批字节
+
+            payload = bytes(self.buffer[4:4 + expected_len])
+            if self.buffer[4 + expected_len] != calc_xor(msg_type, payload):
                 self.bad_frames += 1
                 del self.buffer[0]
                 continue
 
-            payload = frame[4:4 + COMM_FEEDBACK_LEN]
-            xor_value = calc_xor(COMM_TYPE_FEEDBACK, payload)
-            if frame[4 + COMM_FEEDBACK_LEN] != xor_value:
-                self.bad_frames += 1
-                del self.buffer[0]
-                continue
-
-            unpacked = struct.unpack("<" + "i" * 11, payload)
-            frames.append(
-                FeedbackFrame(
-                    left_delta=unpacked[0],
-                    right_delta=unpacked[1],
-                    accel_mms2=(unpacked[2], unpacked[3], unpacked[4]),
-                    gyro_urad_s=(unpacked[5], unpacked[6], unpacked[7]),
-                    mag_nt=(unpacked[8], unpacked[9], unpacked[10]),
+            if msg_type == COMM_TYPE_FEEDBACK:
+                v = struct.unpack("<9i", payload)
+                feedback.append(
+                    FeedbackFrame(
+                        left_delta=v[0],
+                        right_delta=v[1],
+                        accel_mms2=(v[2], v[3], v[4]),
+                        gyro_urad_s=(v[5], v[6], v[7]),
+                        yaw_mdeg=v[8],
+                    )
                 )
-            )
-            del self.buffer[:COMM_FEEDBACK_FRAME_SIZE]
+            else:
+                mv, ma, flags, ver, _res = struct.unpack("<HhBBH", payload)
+                battery.append(
+                    BatteryFrame(voltage_mv=mv, current_ma=ma, flags=flags, proto_ver=ver)
+                )
 
-        return frames
+            del self.buffer[:frame_size]
+
+        return feedback, battery
 
 
 def format_frame(frame: FeedbackFrame) -> str:
@@ -239,15 +307,51 @@ def format_frame(frame: FeedbackFrame) -> str:
         f"right_delta={frame.right_delta:6d} ({frame.right_rad:+.4f} rad)  "
         f"acc_z={frame.accel_mms2[2] / 1000.0:+6.3f} m/s^2  "
         f"gyro_z={frame.gyro_urad_s[2] * 1e-6:+7.4f} rad/s  "
-        f"mag=({frame.mag_nt[0] * 1e-3:+6.1f},"
-        f"{frame.mag_nt[1] * 1e-3:+6.1f},"
-        f"{frame.mag_nt[2] * 1e-3:+6.1f}) uT"
+        f"yaw={frame.yaw_mdeg / 1000.0:+8.3f} deg"
     )
 
 
+def format_battery(frame: BatteryFrame) -> str:
+    warn = ""
+    if frame.proto_ver != COMM_PROTO_VER:
+        warn += f"  !! proto_ver={frame.proto_ver} expected {COMM_PROTO_VER}"
+    if not frame.voltage_valid:
+        warn += "  !! voltage_valid=0"
+    if not frame.vrefint_ok:
+        warn += "  !! vrefint_ok=0 (VDDA fell back to nominal 3.3 V)"
+    return f"battery {frame.voltage_v:6.3f} V  flags=0x{frame.flags:02X}  ver={frame.proto_ver}{warn}"
+
+
+class BatteryStats:
+    """电压统计 —— 验收 1-2 / 1-3 要的是峰峰值。"""
+
+    def __init__(self) -> None:
+        self.count = 0
+        self.lo: Optional[int] = None
+        self.hi: Optional[int] = None
+        self.total = 0
+
+    def add(self, mv: int) -> None:
+        self.count += 1
+        self.total += mv
+        self.lo = mv if self.lo is None else min(self.lo, mv)
+        self.hi = mv if self.hi is None else max(self.hi, mv)
+
+    def summary(self) -> str:
+        if self.count == 0:
+            return "battery: no frames"
+        pp = (self.hi - self.lo) / 1000.0
+        return (
+            f"battery: n={self.count}  mean={self.total / self.count / 1000.0:.3f} V  "
+            f"min={self.lo / 1000.0:.3f}  max={self.hi / 1000.0:.3f}  peak-to-peak={pp:.3f} V"
+        )
+
+
 def cmd_listen(args: argparse.Namespace) -> int:
-    parser = FeedbackParser()
-    frame_count = 0
+    parser = FrameParser()
+    fb_count = 0
+    bat_count = 0
+    stats = BatteryStats()
     start = time.monotonic()
     last_report = start
 
@@ -256,22 +360,32 @@ def cmd_listen(args: argparse.Namespace) -> int:
         while RUNNING:
             chunk = serial_port.read(timeout=0.2)
             if chunk:
-                frames = parser.feed(chunk)
-                for frame in frames:
-                    frame_count += 1
-                    if args.print_every <= 1 or frame_count % args.print_every == 0:
-                        print(f"[{frame_count:06d}] {format_frame(frame)}")
+                feedback, battery = parser.feed(chunk)
+                for frame in feedback:
+                    fb_count += 1
+                    if args.battery_only:
+                        continue
+                    if args.print_every <= 1 or fb_count % args.print_every == 0:
+                        print(f"[{fb_count:06d}] {format_frame(frame)}")
+                for frame in battery:
+                    bat_count += 1
+                    stats.add(frame.voltage_mv)
+                    print(f"[{bat_count:06d}] {format_battery(frame)}")
 
             now = time.monotonic()
             if now - last_report >= args.report_interval:
                 elapsed = now - start
-                hz = frame_count / elapsed if elapsed > 0.0 else 0.0
+                fb_hz = fb_count / elapsed if elapsed > 0.0 else 0.0
+                bat_hz = bat_count / elapsed if elapsed > 0.0 else 0.0
                 print(
-                    f"summary: frames={frame_count}  bad_frames={parser.bad_frames}  "
-                    f"rate={hz:.2f} Hz  buffered={len(parser.buffer)} bytes"
+                    f"summary: feedback={fb_count} ({fb_hz:.2f} Hz)  "
+                    f"battery={bat_count} ({bat_hz:.2f} Hz)  "
+                    f"bad_frames={parser.bad_frames}  buffered={len(parser.buffer)} bytes"
                 )
+                print(f"         {stats.summary()}")
                 last_report = now
 
+    print(f"final: {stats.summary()}")
     return 0
 
 
@@ -308,7 +422,7 @@ def cmd_send(args: argparse.Namespace) -> int:
 
 def cmd_watchdog_test(args: argparse.Namespace) -> int:
     tx_frame = build_vel_cmd(args.left, args.right)
-    parser = FeedbackParser()
+    parser = FrameParser()
 
     with SerialPort(args.port, args.baudrate) as serial_port:
         print(
@@ -334,8 +448,8 @@ def cmd_watchdog_test(args: argparse.Namespace) -> int:
             chunk = serial_port.read(timeout=0.2)
             if not chunk:
                 continue
-            frames = parser.feed(chunk)
-            for frame in frames:
+            feedback, _battery = parser.feed(chunk)
+            for frame in feedback:
                 print(format_frame(frame))
                 if (
                     abs(frame.left_delta) <= args.zero_delta_threshold
@@ -363,12 +477,19 @@ def build_argparser() -> argparse.ArgumentParser:
     parser.add_argument("--baudrate", type=int, default=115200, help="serial baudrate")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    listen_parser = subparsers.add_parser("listen", help="listen for 0x02 feedback frames")
+    listen_parser = subparsers.add_parser(
+        "listen", help="listen for 0x02 feedback and 0x03 battery frames"
+    )
     listen_parser.add_argument(
         "--report-interval", type=float, default=2.0, help="summary print interval in seconds"
     )
     listen_parser.add_argument(
-        "--print-every", type=int, default=10, help="print every Nth valid frame"
+        "--print-every", type=int, default=10, help="print every Nth valid feedback frame"
+    )
+    listen_parser.add_argument(
+        "--battery-only",
+        action="store_true",
+        help="suppress 0x02 lines; battery frames and rate summary only (gain calibration)",
     )
     listen_parser.set_defaults(func=cmd_listen)
 
