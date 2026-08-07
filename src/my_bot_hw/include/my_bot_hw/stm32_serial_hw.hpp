@@ -18,6 +18,9 @@
 #include "hardware_interface/types/hardware_interface_return_values.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_lifecycle/state.hpp"
+#include "sensor_msgs/msg/battery_state.hpp"
+
+#include "my_bot_hw/serial_utils.hpp"
 
 namespace my_bot_hw
 {
@@ -65,6 +68,7 @@ private:
   // ── Background RX thread ───────────────────────────────────────────
   void rx_thread_fn();
   void stop_rx_thread();
+  void publish_battery(const BatteryFrame & frame);
 
   // ── Parameters (from URDF <param>) ────────────────────────────────
   std::string serial_port_{"/dev/ttyS7"};
@@ -104,6 +108,16 @@ private:
   };
   std::mutex   state_mutex_;
   SharedState  shared_state_{};
+
+  // ── Battery publishing ─────────────────────────────────────────────
+  // Deliberately NOT a state_interface + broadcaster: ros2_controllers has
+  // no battery broadcaster, and writing one would cost ~250 lines plus a
+  // lifecycle node for a single 2 Hz scalar.  The node below is never
+  // spun — publishing does not require an executor — and everything happens
+  // on the non-realtime RX thread, so the 100 Hz control loop is untouched.
+  std::shared_ptr<rclcpp::Node>                                     battery_node_;
+  rclcpp::Publisher<sensor_msgs::msg::BatteryState>::SharedPtr      battery_pub_;
+  bool                                                              proto_ver_mismatch_logged_{false};
 
   // ── RX thread lifecycle ────────────────────────────────────────────
   std::thread           rx_thread_;

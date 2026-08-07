@@ -79,4 +79,39 @@ FeedbackFrame parse_feedback(const uint8_t * buf, size_t len)
     return result;
 }
 
+BatteryFrame parse_battery(const uint8_t * buf, size_t len)
+{
+    BatteryFrame result{};
+    result.valid = false;
+
+    if (len < COMM_BATTERY_FRAME_SIZE) return result;
+    if (buf[0] != COMM_HEADER_1)       return result;
+    if (buf[1] != COMM_HEADER_2)       return result;
+    if (buf[2] != COMM_TYPE_BATTERY)   return result;
+    if (buf[3] != COMM_BATTERY_LEN)    return result;
+
+    const uint8_t * data = &buf[4];
+    uint8_t expected_xor = calc_xor(buf[2], buf[3], data);
+    if (buf[4 + COMM_BATTERY_LEN] != expected_xor) return result;
+
+    result.voltage_mv = static_cast<uint16_t>(
+        static_cast<uint16_t>(data[0]) | (static_cast<uint16_t>(data[1]) << 8));
+    result.current_ma = static_cast<int16_t>(
+        static_cast<uint16_t>(data[2]) | (static_cast<uint16_t>(data[3]) << 8));
+    result.flags     = data[4];
+    result.proto_ver = data[5];
+    // data[6..7] reserved
+    result.valid     = true;
+    return result;
+}
+
+size_t frame_payload_len(uint8_t type)
+{
+    switch (type) {
+        case COMM_TYPE_FEEDBACK: return COMM_FEEDBACK_LEN;
+        case COMM_TYPE_BATTERY:  return COMM_BATTERY_LEN;
+        default:                 return 0u;
+    }
+}
+
 }  // namespace my_bot_hw

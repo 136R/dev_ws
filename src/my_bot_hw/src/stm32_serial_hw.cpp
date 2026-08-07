@@ -123,6 +123,18 @@ hardware_interface::CallbackReturn Stm32SerialHardware::on_configure(
     return hardware_interface::CallbackReturn::ERROR;
   }
   RCLCPP_INFO(logger_, "Opened serial port: %s", serial_port_.c_str());
+
+  // Battery publisher.  This node is never added to an executor — publishing
+  // works without one — and is only ever touched from the RX thread.
+  if (!battery_node_) {
+    battery_node_ = std::make_shared<rclcpp::Node>("my_bot_hw_battery");
+    battery_pub_  = battery_node_->create_publisher<sensor_msgs::msg::BatteryState>(
+      "/battery_raw", rclcpp::QoS(1));
+    RCLCPP_INFO(logger_, "Publishing battery on %s",
+                battery_pub_->get_topic_name());
+  }
+  proto_ver_mismatch_logged_ = false;
+
   return hardware_interface::CallbackReturn::SUCCESS;
 }
 
@@ -379,15 +391,39 @@ void Stm32SerialHardware::rx_thread_fn()
     memcpy(stream + stream_fill, tmp, copy_n);
     stream_fill += copy_n;
 
-    // Scan stream for valid feedback frames
+    // Scan the stream for frames.  Multiple frame types share this link, so
+    // the scanner must not assume a single frame length: it identifies the
+    // type first, then decides whether the frame is complete.
+    //
+    // The critical rule is the `break` below.  If a frame type is recognised
+    // but its bytes have not all arrived, we must wait for more data — not
+    // advance one byte.  Advancing would consume the header of a 0x02 that
+    // is still being received and silently drop that odometry sample.
+    // Only a non-header, an unknown type, a mismatched length field, or a
+    // failed checksum justifies stepping forward a byte to resync.
     size_t i = 0;
-    while (i + COMM_FEEDBACK_FRAME_SIZE <= stream_fill) {
+    while (i + COMM_MIN_FRAME_PREFIX <= stream_fill) {
       if (stream[i] != COMM_HEADER_1 || stream[i+1] != COMM_HEADER_2) {
         i++;
         continue;
       }
-      FeedbackFrame fb = parse_feedback(stream + i, stream_fill - i);
-      if (fb.valid) {
+
+      const uint8_t type = stream[i+2];
+      const size_t payload_len = frame_payload_len(type);
+      if (payload_len == 0u || stream[i+3] != payload_len) {
+        i++;   // unknown type or length field does not match — not a frame here
+        continue;
+      }
+
+      const size_t frame_size = COMM_MIN_FRAME_PREFIX + payload_len;
+      if (i + frame_size > stream_fill) {
+        break;   // recognised, but not fully received yet — wait, do NOT i++
+      }
+
+      if (type == COMM_TYPE_FEEDBACK) {
+        FeedbackFrame fb = parse_feedback(stream + i, stream_fill - i);
+        if (!fb.valid) { i++; continue; }
+
         std::lock_guard<std::mutex> lock(state_mutex_);
         shared_state_.left_delta_acc  += fb.left_delta;
         shared_state_.right_delta_acc += fb.right_delta;
@@ -397,10 +433,13 @@ void Stm32SerialHardware::rx_thread_fn()
         shared_state_.has_fresh_feedback = true;
         shared_state_.has_feedback_ever = true;
         shared_state_.last_feedback_time = std::chrono::steady_clock::now();
-        i += COMM_FEEDBACK_FRAME_SIZE;
       } else {
-        i++;
+        BatteryFrame bat = parse_battery(stream + i, stream_fill - i);
+        if (!bat.valid) { i++; continue; }
+        publish_battery(bat);
       }
+
+      i += frame_size;
     }
 
     // Consume processed bytes
@@ -411,6 +450,54 @@ void Stm32SerialHardware::rx_thread_fn()
 
     (void)head; (void)fill; (void)buf;  // unused local vars suppressed
   }
+}
+
+void Stm32SerialHardware::publish_battery(const BatteryFrame & frame)
+{
+  if (!battery_pub_) return;
+
+  // proto_ver guards against "edited the ROS side, forgot to reflash".
+  // A mismatch must never be accepted silently — the voltage is still put on
+  // the wire for diagnosis, but present=false tells consumers not to use it.
+  const bool ver_ok = (frame.proto_ver == COMM_PROTO_VER);
+  if (!ver_ok) {
+    RCLCPP_WARN_THROTTLE(
+      logger_, *rclcpp::Clock::make_shared(), 5000,
+      "STM32 battery frame has proto_ver=%u, this build expects %u. "
+      "Reading rejected (present=false) — reflash the firmware.",
+      frame.proto_ver, COMM_PROTO_VER);
+    proto_ver_mismatch_logged_ = true;
+  } else if (proto_ver_mismatch_logged_) {
+    RCLCPP_INFO(logger_, "STM32 battery proto_ver now matches (%u)", frame.proto_ver);
+    proto_ver_mismatch_logged_ = false;
+  }
+
+  if (ver_ok && !frame.vrefint_ok()) {
+    RCLCPP_WARN_THROTTLE(
+      logger_, *rclcpp::Clock::make_shared(), 30000,
+      "STM32 battery: vrefint_ok=0, VDDA fell back to nominal 3.3 V — "
+      "voltage may be off by a few percent.");
+  }
+
+  sensor_msgs::msg::BatteryState msg;
+  msg.header.stamp = battery_node_->now();
+  msg.voltage = static_cast<float>(frame.voltage_mv) / 1000.0f;
+  msg.present = ver_ok && frame.voltage_valid();
+  msg.power_supply_status     = sensor_msgs::msg::BatteryState::POWER_SUPPLY_STATUS_UNKNOWN;
+  msg.power_supply_health     = sensor_msgs::msg::BatteryState::POWER_SUPPLY_HEALTH_UNKNOWN;
+  msg.power_supply_technology = sensor_msgs::msg::BatteryState::POWER_SUPPLY_TECHNOLOGY_UNKNOWN;
+
+  // BatteryState says unknown quantities are NaN.  Leaving them at 0 would
+  // read as "empty battery / no current", which is worse than saying nothing.
+  const float nan = std::numeric_limits<float>::quiet_NaN();
+  msg.temperature     = nan;
+  msg.current         = nan;   // current_ma is reserved and always 0 in v1
+  msg.charge          = nan;
+  msg.capacity        = nan;
+  msg.design_capacity = nan;
+  msg.percentage      = nan;   // voltage→percent conversion is the next spec
+
+  battery_pub_->publish(msg);
 }
 
 void Stm32SerialHardware::stop_rx_thread()
