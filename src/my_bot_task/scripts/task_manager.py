@@ -30,9 +30,23 @@ app 后端是【固定 schema 的 protobuf 桥】，消费不了 /task/status �
     GET  /task/status  → 当前状态 JSON（state / current / queue / dwell_remaining）
     POST /task/skip    → "我倒完了" = 跳过等待（等价于发 /goal_pose/cancel）
     POST /task/cancel_all → 清空队列
+    POST /task/force_resume → 人工解除低电锁定（override_sec 内不再判低电）
 
 前端拿到 state 才知道现在是不是 WAITING，才能【只在等待时】显示那个
 「我倒完了，回去吧」按钮 —— 语义唯一，不跟「停止导航」混。
+
+【低电为什么复用 STOPPED，而不是新增 LOW_BATTERY 状态】
+
+前端 `task_status.dart` 只定义了 isIdle/isNavigating/isWaiting/isReturning/isStopped
+五个 getter，且 `shouldShowCard => !isIdle`；`task_card.dart` 又只在 isStopped 时
+显示 last_error。新增一个状态的后果是：卡片会弹出来（因为 != IDLE），但五个 getter
+全为 false → 卡片内容无分支可渲染，**而且低电拒绝召唤时用户看不到任何提示**，
+表现为"点了没反应"。要修就得改 Dart 并重新 build + 部署 Flutter web。
+
+复用 STOPPED 后前端一行都不用改，last_error 直接显示"电量低（xx%），已回到待命点"。
+状态区分交给 JSON 里的 battery_low 字段（前端暂不消费，排障用）。
+STOPPED 原有语义是"新召唤会拉回 NAVIGATING"，而低电要拒绝 —— 这个行为差异由独立的
+self.low_battery 标志控制，与 state 字段无关，两者不冲突。
 """
 
 import json
@@ -51,6 +65,7 @@ from rclpy.action import ActionClient
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from rclpy.time import Time
+from sensor_msgs.msg import BatteryState
 from std_msgs.msg import Empty, String
 
 MAPS_ROOT = os.path.expanduser('~/.maps')
@@ -116,7 +131,7 @@ class _TaskHttpHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):             # noqa: N802
         path = self.path.split('?')[0]
-        if path in ('/task/skip', '/task/cancel_all'):
+        if path in ('/task/skip', '/task/cancel_all', '/task/force_resume'):
             self.server.node.pending_cmds.append(path)
             self._send(200, b'{"ok":true}')
         else:
@@ -147,6 +162,17 @@ class TaskManager(Node):
         # 它是"剩余距离 ÷ 当前瞬时线速度"，机器人一转弯/过门减速就炸到几百秒再跳回来。
         # 默认 0.2 < NeuPAN 的 ref_speed 0.3，因为过门和转弯会拉低实际均速。按实测调。
         self.declare_parameter('eta_speed_mps', 0.2)
+
+        # 低电归位。⚠️ 这七个刻意【不缓存】—— _check_battery() 每次都重读参数服务器，
+        # 这样 `ros2 param set /task_manager low_voltage 10.9` 能当场生效。
+        # 阈值是要在实机上反复试的东西，每次都重启节点会把标定过程拖垮。
+        self.declare_parameter('low_voltage', 10.70)
+        self.declare_parameter('resume_voltage', 11.19)
+        self.declare_parameter('critical_voltage', 9.90)
+        self.declare_parameter('low_debounce_sec', 30.0)
+        self.declare_parameter('resume_debounce_sec', 120.0)
+        self.declare_parameter('battery_stale_sec', 30.0)
+        self.declare_parameter('override_sec', 600.0)
 
         self.match_radius = float(self.get_parameter('match_radius').value)
         self.home_point_name = str(self.get_parameter('home_point_name').value)
@@ -191,6 +217,18 @@ class TaskManager(Node):
         self.distance_remaining = 0.0
         self.eta_sec = 0.0
 
+        # ---- 电量 ----
+        self.batt_v = None            # battery_monitor 滤波后的电压（决策用的就是它）
+        self.batt_pct = None          # 百分比，只用来写进 last_error 给人看
+        self.batt_stamp = None        # 最后一条 /battery_status 的到达时刻
+        self.batt_present = False
+        self.battery_stale = True     # 没数据 = 失联，而失联一律【失效开放】
+        self.low_battery = False      # 低电锁存：拒绝新召唤 + 到家后停 STOPPED
+        self.battery_critical = False # 物理地板：就地停，连归位都不再尝试
+        self.low_since = None         # 连续低于 low_voltage 的起点（去抖用）
+        self.resume_since = None      # 连续高于 resume_voltage 的起点
+        self.override_until = None    # 人工覆盖到期时刻
+
         # HTTP 线程 ↔ ROS 线程之间只靠这两个：一个只读的快照，一个只写的命令队列。
         # deque 的 append/popleft 在 CPython 里是原子的，够用了，不用上锁。
         self.status_json = '{}'
@@ -216,11 +254,13 @@ class TaskManager(Node):
         self.create_subscription(PoseStamped, '/goal_pose', self._on_goal, 10)
         self.create_subscription(Empty, '/goal_pose/cancel', self._on_cancel, 10)
         self.create_subscription(Empty, '/task/cancel_all', self._on_cancel_all, 10)
+        self.create_subscription(BatteryState, '/battery_status', self._on_battery, 10)
 
         poll = float(self.get_parameter('poll_period_sec').value)
         self.settle = float(self.get_parameter('settle_sec').value)
         self.create_timer(poll, self._poll_topology)
         self.create_timer(1.0, self._publish_status)   # 让 dwell_remaining 能倒数
+        self.create_timer(1.0, self._check_battery)
         self.create_timer(0.2, self._drain_http_cmds)  # 排空 HTTP 线程塞进来的命令
 
         self._reload_topology()
@@ -256,6 +296,185 @@ class TaskManager(Node):
                 self._on_cancel(Empty())
             elif cmd == '/task/cancel_all':
                 self._on_cancel_all(Empty())
+            elif cmd == '/task/force_resume':
+                self._force_resume()
+
+    # ================= 低电归位 =================
+    #
+    # 三道保险，缺一条这功能就不能上实机：
+    #   1. critical 地板 —— 电压塌到底还在走廊里跑，遇到的是电机堵转 / 欠压复位 /
+    #      TF 断裂，比停在原地糟得多。所以到底了就【就地停】，连归位都不试。
+    #   2. 失效开放 —— /battery_status 失联或 present=false 时【绝不触发低电】。
+    #      反过来做的话，一次固件回滚就能把机器人永久锁在 HOME。
+    #   3. 人工覆盖 —— 现场演示时 20% 也得能跑，否则用户会自己把这功能关掉。
+
+    def _now(self) -> float:
+        return self.get_clock().now().nanoseconds * 1e-9
+
+    def _on_battery(self, msg: BatteryState):
+        self.batt_stamp = self._now()
+        self.batt_present = bool(msg.present)
+        v = float(msg.voltage)
+        self.batt_v = v if math.isfinite(v) else None
+        p = float(msg.percentage)
+        self.batt_pct = int(round(p * 100.0)) if math.isfinite(p) else None
+
+    def _pct_text(self) -> str:
+        return f'{self.batt_pct}%' if self.batt_pct is not None else '未知'
+
+    def _check_battery(self):
+        """1 Hz。所有阈值每次重读参数，`ros2 param set` 当场生效。"""
+        now = self._now()
+        stale_sec = float(self.get_parameter('battery_stale_sec').value)
+
+        never_seen = self.batt_stamp is None
+        stale = (never_seen
+                 or self.batt_v is None
+                 or not self.batt_present
+                 or now - self.batt_stamp > stale_sec)
+
+        if stale and not self.battery_stale:
+            # 真掉线（之前有数据）才是异常，值得 warn
+            self.get_logger().warn(
+                f'/battery_status 失联超过 {stale_sec:.0f}s（或 present=false）—— '
+                f'低电判定已暂停（失效开放），导航不受影响'
+                + ('；当前低电锁定仍生效，需要放行请 POST /task/force_resume'
+                   if self.low_battery else ''))
+        elif self.battery_stale and not stale:
+            self.get_logger().info(
+                f'/battery_status 接上了：{self.batt_v:.2f}V / {self._pct_text()} '
+                f'—— 低电保护生效')
+        self.battery_stale = stale
+
+        if stale:
+            # 去抖计时器清零：失联期间的时间不该算进"连续低于阈值"。
+            # ⚠️ 已经置位的 low_battery 【保持不变】—— 数据丢了不是"电量回来了"，
+            #    不能因此让一台真的没电的机器人重新接单。要放行走 force_resume。
+            self.low_since = self.resume_since = None
+            if never_seen:
+                # 仿真、或还没接电池的台架就是这个状态，不是故障 —— info 且低频，
+                # 不要每分钟报一次警把真正的告警淹了。
+                self.get_logger().info(
+                    '还没收到过 /battery_status —— 低电保护未激活（失效开放）',
+                    throttle_duration_sec=300.0)
+            return
+
+        if self.override_until is not None:
+            if now < self.override_until:
+                return                      # 覆盖期内不做任何低电判定
+            self.override_until = None
+            self.get_logger().warn('人工覆盖到期 —— 低电保护恢复')
+
+        v = self.batt_v
+
+        # ---- 保险 1：critical 物理地板 ----
+        if v <= float(self.get_parameter('critical_voltage').value):
+            if not self.battery_critical:
+                self.battery_critical = True
+                self.low_battery = True
+                self.last_error = f'电量极低（{v:.2f}V / {self._pct_text()}），已就地停机'
+                self.get_logger().error(
+                    f'{self.last_error} —— 不再尝试归位，请立即充电')
+                self._enter_critical()
+            return
+        self.battery_critical = False
+
+        # ---- 低电置位 / 解除 ----
+        if not self.low_battery:
+            if v <= float(self.get_parameter('low_voltage').value):
+                if self.low_since is None:
+                    self.low_since = now
+                elif now - self.low_since >= float(
+                        self.get_parameter('low_debounce_sec').value):
+                    self._enter_low_battery()
+            else:
+                self.low_since = None
+        else:
+            if v >= float(self.get_parameter('resume_voltage').value):
+                if self.resume_since is None:
+                    self.resume_since = now
+                elif now - self.resume_since >= float(
+                        self.get_parameter('resume_debounce_sec').value):
+                    self._exit_low_battery(f'电压回到 {v:.2f}V 并保持')
+            else:
+                self.resume_since = None
+
+    def _enter_low_battery(self):
+        """置位低电 → 清空队列 → 复用已验证的 cancel 语义把当前这件事结束掉。
+
+        刻意【不新写状态机】：_cancel_active() → _on_result(CANCELED) → _advance()
+        这条路已经被"归位途中被召唤"用了很久，是验证过的。低电只是往里塞一个
+        "队列是空的、而且到家之后要停 STOPPED 而不是 IDLE"的前提。
+        """
+        self.low_battery = True
+        self.low_since = self.resume_since = None
+
+        dropped = [t['name'] for t in self.queue]
+        self.queue.clear()
+
+        why = f'电量低（{self._pct_text()}，{self.batt_v:.2f}V），已放弃任务并归位'
+        if dropped:
+            why += f'；丢弃 {len(dropped)} 个待办：{"、".join(dropped)}'
+        self.last_error = why
+        self.get_logger().warn(why)
+
+        if self.state == NAVIGATING:
+            self._cancel_active()
+        elif self.state == WAITING:
+            self._clear_dwell()
+            self._advance()
+        elif self.state in (IDLE, STOPPED):
+            # 已经在家就直接停住；不在家（比如被人推走了）尝试一次归位
+            self._advance()
+        # RETURNING：本来就在回家路上，不动作 —— 到达时 _on_result 会进 STOPPED
+        self._publish_status()
+
+    def _enter_critical(self):
+        """就地停。和 _enter_low_battery 的区别是【不归位】。
+
+        取消当前目标后 _advance() 会看到 battery_critical 为真而直接进 STOPPED，
+        不会再发出新的 NavigateToPose goal。
+        """
+        self.queue.clear()
+        if self.goal_handle is not None:
+            self.goal_handle.cancel_goal_async()
+        self._clear_retry()
+        self._clear_dwell()
+        self._enter(STOPPED)
+
+    def _exit_low_battery(self, reason: str):
+        self.low_battery = False
+        self.battery_critical = False
+        self.low_since = self.resume_since = None
+        self.last_error = ''
+        self.get_logger().info(f'低电解除（{reason}）—— 恢复接单')
+        # 状态留在 STOPPED：新召唤进来时 _on_goal 会看到 state in (IDLE, STOPPED)
+        # 而调 _advance()，和"重试耗尽后停住"的恢复路径完全一样。
+        self._publish_status()
+
+    def _force_resume(self):
+        """人工覆盖：override_sec 内【完全不做】低电判定，critical 地板也一并绕过。
+
+        绕过 critical 是有意的：地板触发时机器人可能正停在门口或走廊中央，
+        需要有办法把它挪走。这是一个人看着电压做出的显式决定，
+        代价（可能半路欠压停机）写在日志里，不藏着。
+        """
+        sec = float(self.get_parameter('override_sec').value)
+        self.override_until = self._now() + sec
+        v = f'{self.batt_v:.2f}V' if self.batt_v is not None else '电压未知'
+        self.get_logger().warn(
+            f'⚠️ 人工覆盖低电保护 {sec:.0f}s（当前 {v} / {self._pct_text()}）—— '
+            f'低电与 critical 地板都不再判定，电量确实不足时机器人可能在半路停下')
+        self._exit_low_battery(f'人工覆盖 {sec:.0f}s')
+
+    def _idle_state(self) -> str:
+        """队列做空、已在待命点时进哪个状态。
+
+        低电时必须是 STOPPED 而不是 IDLE：IDLE 的语义是"待命，随时可以接单"，
+        而前端也只在 STOPPED 时显示 last_error —— 进 IDLE 的话用户既看不到
+        "为什么停了"，界面上任务卡还会整个消失（shouldShowCard => !isIdle）。
+        """
+        return STOPPED if (self.low_battery or self.battery_critical) else IDLE
 
     # ================= 拓扑点 =================
 
@@ -382,6 +601,16 @@ class TaskManager(Node):
             return
 
         name = task['name']
+
+        # 低电时【拒绝，不排队】。排队意味着"充满电后几小时突然自己跑起来"，
+        # 对真实使用是惊吓不是便利。写 last_error 是为了让用户看到原因 ——
+        # 前端只在 STOPPED 时显示它，而低电时状态正好就是 STOPPED。
+        if self.low_battery:
+            self.last_error = f'电量低（{self._pct_text()}），已拒绝召唤「{name}」'
+            self.get_logger().warn(self.last_error)
+            self._publish_status()
+            return
+
         if any(t['name'] == name for t in self.queue) or (
                 self.current and self.active_kind == 'task'
                 and self.current['name'] == name):
@@ -428,22 +657,36 @@ class TaskManager(Node):
         self._clear_dwell()
         self.retries = 0
 
+        # 电压塌到地板了 —— 就地停，连回家都不试（保险 1）。
+        # 放在最前面是因为 _cancel_active() 的 CANCELED 回调也会走到这里，
+        # 不拦住的话取消完当前目标又会立刻发一个归位目标出去。
+        if self.battery_critical:
+            self.queue.clear()
+            self._enter(STOPPED)
+            return
+
+        # 兜底：低电期间队列必须是空的。正常路径下 _enter_low_battery() 已经清过，
+        # 这里防的是"清空之后、状态落定之前又进来一个召唤"的竞态。
+        if self.low_battery and self.queue:
+            self.get_logger().warn(f'低电期间队列复活了 {len(self.queue)} 项 —— 再清一次')
+            self.queue.clear()
+
         if self.queue:
             task = self.queue.popleft()
             self._goto(task, 'task')
             return
 
         if not self.return_home:
-            self._enter(IDLE)
+            self._enter(self._idle_state())
             return
 
         home = self._home()
         if home is None:
             self.get_logger().warn('没有待命点可回（TF 也拿不到）—— 原地待命')
-            self._enter(IDLE)
+            self._enter(self._idle_state())
             return
         if self._at(home):
-            self._enter(IDLE)
+            self._enter(self._idle_state())
             return
         self._goto(home, 'home')
 
@@ -475,6 +718,14 @@ class TaskManager(Node):
     # ================= NavigateToPose =================
 
     def _send_nav_goal(self, task):
+        # critical 的最后一道闸：_advance() 已经拦过，但 retry_timer 可能在电压塌下去
+        # 之前就排上了，那条路绕过 _advance() 直接到这里。地板的语义是"不再发出
+        # 任何导航目标"，所以这里必须再挡一次。
+        if self.battery_critical:
+            self.get_logger().error('电量已到临界地板 —— 不再发出导航目标')
+            self._enter(STOPPED)
+            return
+
         # 用 server_is_ready() 而不是 wait_for_server(timeout) —— 后者会在单线程
         # executor 的回调里阻塞 spin。Nav2 起得比本节点慢是正常的，等就是了，
         # 而且这种等待【不消耗 nav_retry_max】（那是留给真正导航失败的）。
@@ -540,8 +791,15 @@ class TaskManager(Node):
         if status == GoalStatus.STATUS_SUCCEEDED:
             self.retries = 0
             if self.active_kind == 'home':
-                self.get_logger().info('已归位，待命中')
-                self._enter(IDLE)
+                if self.low_battery:
+                    self.last_error = (
+                        f'电量低（{self._pct_text()}），已回到待命点，'
+                        f'充电后自动恢复')
+                    self.get_logger().warn(f'{self.last_error} —— 进 STOPPED，拒绝新召唤')
+                    self._enter(STOPPED)
+                else:
+                    self.get_logger().info('已归位，待命中')
+                    self._enter(IDLE)
             else:
                 self.get_logger().info(
                     f'到达「{self.current["name"]}」—— 等 {self.dwell_sec:.0f}s '
@@ -622,10 +880,14 @@ class TaskManager(Node):
     # ================= 状态播报 =================
 
     def _publish_status(self):
+        now = self._now()
         remaining = 0.0
         if self.state == WAITING and self.dwell_deadline is not None:
-            now = self.get_clock().now().nanoseconds * 1e-9
             remaining = max(0.0, self.dwell_deadline - now)
+
+        override_left = 0.0
+        if self.override_until is not None:
+            override_left = max(0.0, self.override_until - now)
 
         self.status_json = json.dumps({
             'state': self.state,
@@ -638,7 +900,16 @@ class TaskManager(Node):
             'distance_remaining': round(self.distance_remaining, 2),
             'eta_sec': round(self.eta_sec, 1),
             'last_error': self.last_error,
-            'stamp': round(self.get_clock().now().nanoseconds * 1e-9, 3),
+            # 电量。state 取值【不变】（仍是原五个）—— 低电时是 STOPPED，
+            # 靠 battery_low 区分是"重试耗尽/被取消"还是"没电了"。
+            # 无数据时发 null 而不是 0：0 会被读成"电量为零"，比"不知道"更糟。
+            'battery_pct': self.batt_pct,
+            'battery_v': round(self.batt_v, 2) if self.batt_v is not None else None,
+            'battery_low': self.low_battery,
+            'battery_critical': self.battery_critical,
+            'battery_stale': self.battery_stale,
+            'battery_override_remaining': round(override_left, 1),
+            'stamp': round(now, 3),
         }, ensure_ascii=False)
 
         msg = String()
