@@ -28,8 +28,11 @@ src/articubot_one/
 # Editor (optional)
 .vscode/
 
-# stm32层
-firmware/
+# stm32 层：源码/驱动/ioc 全部跟踪（clone 即可编译，CubeMX 改动可 diff review）
+# 只排除编译产物与 IDE 本地状态
+firmware/my_robot_stm32/Debug/
+firmware/my_robot_stm32/.metadata/
+firmware/my_robot_stm32/.settings/
 
 # 硬件雷达驱动包
 src/sllidar_ros2/
