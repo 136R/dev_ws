@@ -54,6 +54,11 @@ def generate_launch_description():
             'task_params_file',
             default_value=os.path.join(pkg_task, 'config', 'task_params.yaml'),
             description='任务层参数文件'),
+        # 同上，名字必须够独特 —— 子 launch 会继承父作用域里的同名配置。
+        DeclareLaunchArgument(
+            'battery_params_file',
+            default_value=os.path.join(pkg_task, 'config', 'battery.yaml'),
+            description='电量监视参数文件（电压→百分比表、滤波、棘轮）'),
         DeclareLaunchArgument(
             'use_watchdog', default_value='true',
             description='是否起导航卡死看门狗。兜底 controller_server/bt_navigator '
@@ -83,6 +88,20 @@ def generate_launch_description():
             respawn=True,
             respawn_delay=2.0,
             parameters=[task_params_file, {'use_sim_time': use_sim_time}],
+        ),
+
+        Node(
+            package='my_bot_task',
+            executable='battery_monitor.py',
+            name='battery_monitor',
+            output='screen',
+            # ⚠️ 刻意【不】respawn：这个节点唯一的启动失败原因是 battery.yaml 的
+            # 电压→电量表非法，那是配置错误，重启一百次也还是错的 —— respawn 只会
+            # 把说明原因的那条 error 刷出屏幕。让它安静地死掉，日志里才查得到。
+            # 而它挂掉的后果是 /battery_status 断流 → task_manager 失效开放，
+            # 导航照常，不会连累业务闭环。
+            parameters=[LaunchConfiguration('battery_params_file'),
+                        {'use_sim_time': use_sim_time}],
         ),
 
         Node(
