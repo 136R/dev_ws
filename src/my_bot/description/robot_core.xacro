@@ -23,33 +23,65 @@
         <color rgba="1 0 0 1" />
     </material>
 
-    <!-- 车身结构 -->
+    <!-- 车身结构：双层 ⌀0.22 圆盘（2026-08 底盘重做）
+         base_link = 第一层圆盘下表面所在平面，原点 = 两驱动轮轴心连线中点的投影。
+         圆盘圆心不在 base_link 上，而在其后方 0.047（差速车轮轴中点 ≠ 盘心）。 -->
     <link name="base_link">
         <visual>
-            <origin xyz="-0.0275 0 0.0479" rpy="0 0 0" />
+            <origin xyz="-0.047 0 0.0025" rpy="0 0 0" />
             <geometry>
-                <box size="0.123 0.13 0.0958" />
+                <cylinder radius="0.11" length="0.005" />
             </geometry>
             <material name="white" />
         </visual>
         <collision>
-            <origin xyz="-0.0275 0 0.0479" rpy="0 0 0" />
+            <origin xyz="-0.047 0 0.0025" rpy="0 0 0" />
             <geometry>
-                <box size="0.123 0.13 0.0958" />
+                <cylinder radius="0.11" length="0.005" />
             </geometry>
         </collision>
-        <xacro:inertial_box mass="1.5" x="0.123" y="0.13" z="0.0958">
-            <origin xyz="-0.05 0 0.0479" rpy="0 0 0" />
-        </xacro:inertial_box>
+        <!-- 质量为估计值（整车实测质量待补），不影响 TF/里程计，只影响仿真动力学 -->
+        <xacro:inertial_cylinder mass="1.5" length="0.005" radius="0.11">
+            <origin xyz="-0.047 0 0.0025" rpy="0 0 0" />
+        </xacro:inertial_cylinder>
     </link>
+
+    <!-- 第二层（顶板）：同规格 ⌀0.22 圆盘，由立柱撑开，顶面离地 0.16 -->
+    <joint name="top_plate_joint" type="fixed">
+        <parent link="base_link" />
+        <child link="top_plate" />
+        <origin xyz="-0.047 0 0.1055" rpy="0 0 0" />
+    </joint>
+
+    <link name="top_plate">
+        <visual>
+            <geometry>
+                <cylinder radius="0.11" length="0.005" />
+            </geometry>
+            <material name="white" />
+        </visual>
+        <collision>
+            <geometry>
+                <cylinder radius="0.11" length="0.005" />
+            </geometry>
+        </collision>
+        <!-- 质量为估计值，同上 -->
+        <xacro:inertial_cylinder mass="0.3" length="0.005" radius="0.11">
+            <origin xyz="0 0 0" rpy="0 0 0" />
+        </xacro:inertial_cylinder>
+    </link>
+
+    <gazebo reference="top_plate">
+        <material>Gazebo/White</material>
+    </gazebo>
 
     <!-- BASE_FOOTPRINT -->
 
     <joint name="base_footprint_joint" type="fixed">
         <parent link="base_footprint" />
         <child link="base_link" />
-        <!-- <origin xyz="0 0 0.05" rpy="0 0 0" /> -->
-        <origin xyz="0 0 0.012" rpy="0 0 0" />
+        <!-- 第一层圆盘下表面离地 0.052（实测） -->
+        <origin xyz="0 0 0.052" rpy="0 0 0" />
     </joint>
 
     <link name="base_footprint">
@@ -59,23 +91,24 @@
     <joint name="left_wheel_joint" type="continuous">
         <parent link="base_link" />
         <child link="left_wheel" />
-        <origin xyz="0.0 0.0875 0.023" rpy="-${pi/2} 0.0 0.0" />
+        <!-- z 为负：轮轴心在 base_link（板下表面, 离地 0.052）下方 0.017，即离地 0.035 = 轮半径 -->
+        <origin xyz="0.0 0.096 -0.017" rpy="-${pi/2} 0.0 0.0" />
         <axis xyz="0.0 0.0 1.0" />
     </joint>
 
     <link name="left_wheel">
         <visual>
             <geometry>
-                <cylinder radius="0.035" length="0.027" />
+                <cylinder radius="0.035" length="0.028" />
             </geometry>
             <material name="blue" />
         </visual>
         <collision>
             <geometry>
-                <cylinder radius="0.035" length="0.027" />
+                <cylinder radius="0.035" length="0.028" />
             </geometry>
         </collision>
-        <xacro:inertial_cylinder mass="0.1" length="0.027" radius="0.035">
+        <xacro:inertial_cylinder mass="0.1" length="0.028" radius="0.035">
             <origin xyz="0 0 0" rpy="0 0 0" />
         </xacro:inertial_cylinder>
     </link>
@@ -95,23 +128,24 @@
     <joint name="right_wheel_joint" type="continuous">
         <parent link="base_link" />
         <child link="right_wheel" />
-        <origin xyz="0.0 -0.0875 0.023" rpy="${pi/2} 0.0 0.0" />
+        <!-- z 为负，同左轮 -->
+        <origin xyz="0.0 -0.096 -0.017" rpy="${pi/2} 0.0 0.0" />
         <axis xyz="0.0 0.0 -1.0" />
     </joint>
 
     <link name="right_wheel">
         <visual>
             <geometry>
-                <cylinder radius="0.035" length="0.027" />
+                <cylinder radius="0.035" length="0.028" />
             </geometry>
             <material name="blue" />
         </visual>
         <collision>
             <geometry>
-                <cylinder radius="0.035" length="0.027" />
+                <cylinder radius="0.035" length="0.028" />
             </geometry>
         </collision>
-        <xacro:inertial_cylinder mass="0.1" length="0.027" radius="0.035">
+        <xacro:inertial_cylinder mass="0.1" length="0.028" radius="0.035">
             <origin xyz="0 0 0" rpy="0 0 0" />
         </xacro:inertial_cylinder>
     </link>
@@ -131,22 +165,23 @@
     <joint name="caster_back_joint" type="fixed">
         <parent link="base_link" />
         <child link="caster_back_wheel" />
-        <origin xyz="-0.06445 0 0.008" rpy="0 0 0" />
+        <!-- WHEELTEC 万向轮 Ø25，球心在轮轴中点后方 0.12；z 为负，球心离地 0.0125 = 球半径 -->
+        <origin xyz="-0.12 0 -0.0395" rpy="0 0 0" />
     </joint>
 
     <link name="caster_back_wheel">
         <visual>
             <geometry>
-                <sphere radius="0.02" />
+                <sphere radius="0.0125" />
             </geometry>
             <material name="black" />
         </visual>
         <collision>
             <geometry>
-                <sphere radius="0.02" />
+                <sphere radius="0.0125" />
             </geometry>
         </collision>
-        <xacro:inertial_sphere mass="0.1" radius="0.02">
+        <xacro:inertial_sphere mass="0.05" radius="0.0125">
             <origin xyz="0 0 0" rpy="0 0 0" />
         </xacro:inertial_sphere>
     </link>
@@ -159,6 +194,38 @@
         <minDepth>0.001</minDepth>
         <maxVel>1.0</maxVel>
         <material>Gazebo/Black</material>
+    </gazebo>
+
+    <!-- ═══ Gazebo 地面真值发布器 ═══════════════════════════════════════════
+         把模型位姿发到 gz 话题 /model/my_bot/pose，再由 config/gz_bridge.yaml
+         桥接成 ROS 的 /gz/model/my_bot/pose（PoseStamped）。
+
+         为什么必须有它（2026-08-12 加）：
+         Gazebo 默认【不】发布 per-model 的 pose 话题，只发世界级的
+         /world/default/pose/info（Pose_V，含所有 model+link+visual）。
+         而 Pose_V 桥接成 geometry_msgs/PoseArray 后【丢失 name 字段】，
+         下游只能靠数组下标定位机器人 —— 下标随世界里模型的数量和顺序变，必然过期。
+
+         实测教训：python/monitor.py 与 gz_pose_monitor.py 的备用分支都硬编码
+         WORLD_POSES_INDEX = 9，而在 worlds/home_4rooms.sdf 里 index=9 是
+         corridor_s_seg1（一堵墙），my_bot 实际在 index=38。也就是说在挂上本插件之前，
+         这两个脚本显示的「Gazebo 真值」读的根本不是机器人。
+
+         两个脚本都已写好「优先用单话题、其次用 PoseArray」的逻辑，所以本插件一生效
+         它们就自动走对通道，无需改动脚本。
+         注：本标签在实机（sim_mode:=false）下会被 robot_state_publisher 忽略，无副作用。
+    ═══════════════════════════════════════════════════════════════════════ -->
+    <gazebo>
+        <plugin filename="gz-sim-pose-publisher-system"
+                name="gz::sim::systems::PosePublisher">
+            <publish_model_pose>true</publish_model_pose>
+            <publish_link_pose>false</publish_link_pose>
+            <publish_collision_pose>false</publish_collision_pose>
+            <publish_visual_pose>false</publish_visual_pose>
+            <publish_nested_model_pose>false</publish_nested_model_pose>
+            <use_pose_vector_msg>false</use_pose_vector_msg>
+            <update_frequency>50</update_frequency>
+        </plugin>
     </gazebo>
 
 </robot>

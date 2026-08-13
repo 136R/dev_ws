@@ -37,7 +37,9 @@ def generate_launch_description():
             ' sim_mode:=false',
             ' ros2_control_config:=', hw_xacro,
             ' serial_port:=', serial_port,
-            ' lidar_yaw:=3.115414361',   # real hardware calibration (sim uses default ${pi})
+            # 2026-08 底盘重做后旧标定值 3.115414361 作废（雷达整体重装）。
+            # 暂用名义值 pi，待重新标定后回填实测值。
+            ' lidar_yaw:=3.14159265358979',
         ]),
         value_type=str
     )

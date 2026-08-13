@@ -5,8 +5,8 @@
     <joint name="imu_joint" type="fixed">
         <parent link="base_link"/>
         <child link="imu_link"/>
-        <!-- 车身几何中心 xy，中心 z -->
-        <origin xyz="-0.0275 0 0.0479" rpy="0 0 0"/>
+        <!-- 实测安装位：x=0，y 右偏 0.04，离地 0.084（base_link 上方 0.032）；朝向未变 -->
+        <origin xyz="0 -0.04 0.032" rpy="0 0 0"/>
     </joint>
 
     <link name="imu_link">
