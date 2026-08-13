@@ -13,7 +13,7 @@ ros2 run teleop_twist_keyboard teleop_twist_keyboard \
 # 键盘控制 - 设目标速度
 ros2 run teleop_twist_keyboard teleop_twist_keyboard \
   --ros-args -r cmd_vel:=/cmd_vel_keyboard \
-  -p speed:=0.2 -p turn:=0.6
+  -p speed:=0.3 -p turn:=1.2
 
 # 里程计查看
 ./src/my_bot/python/monitor.py --mode hw
@@ -32,6 +32,8 @@ slam_toolbox/srv/SerializePoseGraph \
 # 3.nav2
 ros2 launch my_bot_nav nav.launch.py
 ros2 launch my_bot_nav nav.launch.py controller:=neupan
+ros2 launch my_bot_nav nav.launch.py \
+  params_file:=/home/orangepi/dev_ws/src/my_bot_nav/config/hw/nav2_params_hw_neupan_smac2d.yaml
 # 任务层（包含nav2）
 ros2 launch my_bot_task task.launch.py
 
