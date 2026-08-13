@@ -19,7 +19,7 @@ class DataMonitor(Node):
     WORLD_POSES_INDEX = 9
     GZ_SINGLE_POSE_TOPIC = '/gz/model/my_bot/pose'
     GZ_WORLD_POSES_TOPIC = '/world_poses'
-    ODOM_TOPIC = '/odom'
+    ODOM_TOPIC = '/diff_cont/odom'
     EKF_TOPIC = '/odometry/filtered'
     CMD_VEL_NAV2_TOPIC = '/cmd_vel_nav'
 
@@ -212,7 +212,7 @@ class DataMonitor(Node):
 
 def parse_args(args=None):
     parser = argparse.ArgumentParser(
-        description='实时查看 /odom、/odometry/filtered、Nav2 输出和位姿 TF。'
+        description='实时查看 /diff_cont/odom、/odometry/filtered、Nav2 输出和位姿 TF。'
     )
     parser.add_argument(
         '--mode',
