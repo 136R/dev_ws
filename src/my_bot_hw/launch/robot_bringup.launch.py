@@ -3,7 +3,7 @@ import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, TimerAction
-from launch.substitutions import LaunchConfiguration, Command, PythonExpression
+from launch.substitutions import LaunchConfiguration, Command
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 
@@ -21,18 +21,9 @@ def generate_launch_description():
         description='SLAMTEC C1 LiDAR serial port')
     use_sim_time_arg = DeclareLaunchArgument(
         'use_sim_time', default_value='false')
-    # 雷达时间戳校正（spec 2026-08-14 的 C1，vendor patch）。
-    # true  = header.stamp 挪到本帧真正对应的时刻（实测下游 TF 误差 +82.6 → −5.1 ms）
-    # false = 上游原始行为
-    # ⚠ 默认暂时为 false：C1 已复测通过，但用户反馈开启后 RViz 里旋转观感有异，
-    #   正在做 A/B 对照。对照结论出来前不要动这个默认值，也不要以为 C1 被废弃了。
-    stamp_correct_arg = DeclareLaunchArgument(
-        'stamp_correct', default_value='false',
-        description='LiDAR 时间戳 C1 校正开关（true=校正，false=上游原始行为）')
-    serial_port   = LaunchConfiguration('serial_port')
-    lidar_port    = LaunchConfiguration('lidar_port')
-    use_sim_time  = LaunchConfiguration('use_sim_time')
-    stamp_correct = LaunchConfiguration('stamp_correct')
+    serial_port  = LaunchConfiguration('serial_port')
+    lidar_port   = LaunchConfiguration('lidar_port')
+    use_sim_time = LaunchConfiguration('use_sim_time')
 
     # ── Robot description ─────────────────────────────────────────
     # Reuse my_bot's robot.urdf.xacro with sim_mode:=false so it loads
@@ -130,12 +121,6 @@ def generate_launch_description():
             'inverted': False,
             'angle_compensate': True,
             'scan_mode': 'Standard',
-            # C1 时间戳校正（vendor patch），由 stamp_correct 这个 launch 参数统一控制。
-            # 数值 0.0324 的出处与重标方法见 docs/vendor/sllidar_ros2_本地修改.md
-            'stamp_use_frame_center': ParameterValue(stamp_correct, value_type=bool),
-            'stamp_extra_offset': ParameterValue(
-                PythonExpression(["0.0324 if '", stamp_correct, "' == 'true' else 0.0"]),
-                value_type=float),
         }]
     )
 
@@ -224,7 +209,6 @@ def generate_launch_description():
         serial_port_arg,
         lidar_port_arg,
         use_sim_time_arg,
-        stamp_correct_arg,
         rsp_node,
         ros2_control_node,
         joint_broad_spawner,

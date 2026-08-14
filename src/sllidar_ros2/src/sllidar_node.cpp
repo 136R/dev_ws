@@ -74,10 +74,6 @@ class SLlidarNode : public rclcpp::Node
         this->declare_parameter<std::string>("serial_port", "/dev/ttyUSB0");
         this->declare_parameter<int>("serial_baudrate",1000000);
         this->declare_parameter<std::string>("frame_id","laser_frame");
-        // 本地修改 (vendor patch)：C1 时间戳校正的两个开关。见 docs/vendor/sllidar_ros2_本地修改.md
-        // 两个都设成 false / 0.0 = 完全恢复上游行为（用于 A/B 对照，不需要重编）。
-        this->declare_parameter<bool>("stamp_use_frame_center", true);
-        this->declare_parameter<double>("stamp_extra_offset", 0.0324);
         this->declare_parameter<bool>("inverted", false);
         this->declare_parameter<bool>("angle_compensate", false);
         this->declare_parameter<std::string>("scan_mode",std::string());
@@ -91,12 +87,6 @@ class SLlidarNode : public rclcpp::Node
         this->get_parameter_or<std::string>("serial_port", serial_port, "/dev/ttyUSB0"); 
         this->get_parameter_or<int>("serial_baudrate", serial_baudrate, 1000000/*256000*/);//ros run for A1 A2, change to 256000 if A3
         this->get_parameter_or<std::string>("frame_id", frame_id, "laser_frame");
-        this->get_parameter_or<bool>("stamp_use_frame_center", stamp_use_frame_center, true);
-        this->get_parameter_or<double>("stamp_extra_offset", stamp_extra_offset, 0.0324);
-        RCLCPP_INFO(this->get_logger(),
-            "[vendor patch] stamp 校正: frame_center=%s, extra_offset=%.4f s%s",
-            stamp_use_frame_center ? "on" : "off", stamp_extra_offset,
-            (!stamp_use_frame_center && stamp_extra_offset == 0.0) ? "  (= 上游原始行为)" : "");
         this->get_parameter_or<bool>("inverted", inverted, false);
         this->get_parameter_or<bool>("angle_compensate", angle_compensate, false);
         this->get_parameter_or<std::string>("scan_mode", scan_mode, std::string());
@@ -219,31 +209,7 @@ class SLlidarNode : public rclcpp::Node
         static int scan_count = 0;
         auto scan_msg = std::make_shared<sensor_msgs::msg::LaserScan>();
 
-        // ───── 本地修改 (vendor patch) 2026-08-14：把 header.stamp 挪到本帧真正对应的时刻 ─────
-        // 详见 docs/vendor/sllidar_ros2_本地修改.md 与 docs/spec/2026-08-14-2D激光链路优化.md 的 C1。
-        //
-        // 上游把 header.stamp 填成 start_scan_time，而 start_scan_time 是在 grabScanDataHq()
-        // **阻塞之前**取的（work_loop 里），下游又用它去查 TF 并代表整整 100 ms 的数据。
-        // A2 实测（7 个索引窗对 odom yaw 做时移拟合）：本帧的束实际测于
-        //   stamp + 134.9 ms − i × 142.6 µs，即 stamp+32.4 ms ~ stamp+134.9 ms，均值 +83.6 ms。
-        // 转向 0.6 rad/s 时这 83.6 ms = 2.9° 角度误差，3 m 处横向错位 15 cm，
-        // 而 costmap 的 obstacle_layer 不做任何配准，是照单全收的。
-        //
-        // 两个分量含义不同，故不合并成一个常数：
-        //   scan_time/2  —— 帧中心，几何量，转速变了自动跟随
-        //   kScanChainLatencyS —— scan 链相对 odom/EKF 链的**相对**固定延迟，实测量
-        //
-        // ⚠ 这个常数不能断言全在雷达侧（EKF 输出滞后于自身时间戳会产生一模一样的特征）。
-        //   CPU 负载 / DDS / scan_mode 改了必须用 lidar_diag.py delay 重标，别当物理常数。
-        // ⚠ 本改动**不动** time_increment：它仍为正，而实际采样时刻随索引**递减**
-        //   （见下面 reverse_data 分支）。逐点 deskew 的下游依旧会算错，那是 C2 的事。
-        // 两个分量由参数控制，都关掉 = 上游原始行为（A/B 对照用，不必重编）：
-        //   stamp_use_frame_center (bool,   默认 true)   → 加 scan_time/2
-        //   stamp_extra_offset     (double, 默认 0.0324) → 加实测的链路相对延迟 (s)
-        const double stamp_shift =
-            (stamp_use_frame_center ? scan_time / 2.0 : 0.0) + stamp_extra_offset;
-        scan_msg->header.stamp = start + rclcpp::Duration::from_seconds(stamp_shift);
-        // ───── 本地修改结束 ─────
+        scan_msg->header.stamp = start;
         scan_msg->header.frame_id = frame_id;
         scan_count++;
 
@@ -489,8 +455,6 @@ public:
     int serial_baudrate = 115200;
     std::string frame_id;
     bool inverted = false;
-    bool stamp_use_frame_center = true;   // 本地修改 (vendor patch)：见 C1
-    double stamp_extra_offset = 0.0324;   // 秒
     bool angle_compensate = true;
     float max_distance = 8.0;
     size_t angle_compensate_multiple = 1;//it stand of angle compensate at per 1 degree

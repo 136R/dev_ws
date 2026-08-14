@@ -2,55 +2,69 @@
 
 > 这是**厂商驱动**（思岚 SLLIDAR ROS2 SDK），不是我们写的代码。
 > 每一处本地改动都必须记在这里 —— 否则下一个人 `git diff` 看到改动会以为是上游行为。
->
-> **本仓库的策略：驱动不跟随上游升级。** 所以下面的补丁不需要维护成可重放的 patch 文件，
-> 但**必须能被追问**：改了什么、为什么、依据是什么、什么情况下要重标。
->
-> ⚠ **`src/sllidar_ros2/` 出现在 `.gitignore:38`，但包里的既有文件是被跟踪的**
-> （那条规则是在包提交之后才加的，对已跟踪文件无效）。所以：
->
-> | | 行为 |
-> |---|---|
-> | 改**已有**文件（如 `src/sllidar_node.cpp`） | ✅ 正常随 `git push pi main` 同步 |
-> | 在包里**新建**文件 | 🚫 被 ignore 规则吃掉，`git add` 会静默失败 |
->
-> 所以本台账放在**被跟踪的** `docs/vendor/` 下，而不是包目录里 —— 放在包里它会消失。
-> 改完 `.cpp` 记得**两边都要重编**（`colcon build --packages-select sllidar_ros2`），
-> 推送只同步源码。
+
+## 当前状态：**无本地修改**
+
+驱动源码与 `b89ff44` 里的上游版本逐字节一致。
+
+> ⚠ `src/sllidar_ros2/` 出现在 `.gitignore:38`，但包里的**既有**文件是被跟踪的
+> （那条规则是在包提交之后才加的，对已跟踪文件无效）。所以改已有文件会正常随
+> `git push pi main` 同步，只有在包里**新建**文件才会被静默吃掉 ——
+> 本台账因此放在 `docs/vendor/` 而不是包目录里。
+> `git add` 这个包里的文件会报 ignored 却仍然把它暂存，用 `git add -f` 显式绕开。
 
 ---
 
-## 1. `header.stamp` 挪到本帧真正对应的时刻（2026-08-14）
+## 已撤回：`header.stamp` 时间戳校正（2026-08-14 加入，同日按用户要求删除）
 
-**位置**：`src/sllidar_node.cpp` 的 `publish_scan()`，原 `scan_msg->header.stamp = start;`
-（三个调用点共用这一处，改一次全覆盖）
+**保留本节的唯一目的**：把测出来的数存档，免得以后有人从头再趟一遍。
+代码已完全删除，**当前实机跑的是上游原始行为**。
 
-**改成**：
+### 当时改了什么
 
-```cpp
-static constexpr double kScanChainLatencyS = 0.0324;
-scan_msg->header.stamp =
-    start + rclcpp::Duration::from_seconds(scan_time / 2.0 + kScanChainLatencyS);
-```
+`publish_scan()` 里 `scan_msg->header.stamp = start;`
+→ `start + scan_time/2 + 0.0324`（后期做成了两个 ROS 参数，一并删除）。
 
-### 为什么
+### 为什么当时认为该改
 
-上游把 `header.stamp` 填成 `start_scan_time`，而 `start_scan_time` 是在
-`grabScanDataHq()` **阻塞之前**取的（`work_loop()` 里）。下游（slam_toolbox、
-nav2 costmap、laser_filters 的 polygon filter）拿这个戳去查 TF，并把它当作**整整
-100 ms** 数据的采样时刻。
+上游把 `header.stamp` 填成 `start_scan_time`，而那个时刻是在 `grabScanDataHq()`
+**阻塞之前**取的（`work_loop()` 里）。下游（slam_toolbox、nav2 costmap、
+laser_filters）拿这个戳去查 TF，并把它当作整整 100 ms 数据的采样时刻。
 
 `docs/spec/2026-08-14-2D激光链路优化.md` 阶段 A2 实测（沿整圈取 7 个独立索引窗，
 各自对 odom yaw 做时移拟合，残差 RMS 0.28~1.18°）：
 
 ```
-本帧第 i 束的真实采样时刻 ≈ header.stamp + 134.9 ms − i × 142.6 µs
+第 i 束真实采样时刻 ≈ header.stamp + 134.9 ms − i × 142.6 µs
   ⇒ 最早的束（i=719）在 stamp + 32.4 ms
   ⇒ 最晚的束（i=0）  在 stamp + 134.9 ms
   ⇒ 全帧均值            stamp + 83.6 ms
 ```
 
-83.6 ms 的后果，按 Nav2 的 `rotate_to_heading_angular_vel: 0.6` 算：
+### 改完的实测效果（**通过**，这是撤回前已验证的）
+
+两份数据用同一套参数（`tshift` 子命令，半宽 20 束 / resid≤0.015 / ≥120 帧 /
+RMS≤2.6° / 跳变≤15°）：
+
+| | 改前 | 改后 |
+|---|---|---|
+| 采用窗数 | 13 | 20 |
+| 斜率 ÷ `time_increment` | −1.05 | −0.99 |
+| 截距（i=0 处 Δ） | +134.7 ms | +43.8 ms |
+| **全帧均值 Δ = 下游 TF 误差** | **+82.6 ms** | **−5.1 ms** |
+
+降幅 94%，`|Δ| < 10 ms`。
+
+### 为什么还是删了
+
+用户在 RViz 里观察到**开启后旋转观感异常**，决定不保留。
+（我当时的猜想是：C1 让帧内畸变从"整体偏移"变成"正前方对称撕裂"因而更显眼 ——
+**这个猜想没有被验证过**，不要当结论引用。）
+
+### 删除后回到的状态
+
+`header.stamp` 重新比本帧数据早 32~135 ms。按 Nav2 的
+`rotate_to_heading_angular_vel: 0.6` 算，全帧均值 83.6 ms 对应：
 
 | | |
 |---|---|
@@ -58,57 +72,18 @@ nav2 costmap、laser_filters 的 polygon filter）拿这个戳去查 TF，并把
 | 3 m 处横向错位 | 15 cm = 3 个栅格（地图 resolution 0.05） |
 | 谁吃这个亏 | **costmap 的 obstacle_layer 不做任何配准**，照单全收 |
 
-补 `scan_time/2 + 0.0324` = 82.1 ms，残差 ≈ 1.5 ms。
+这是**已知存在、已量化、当前未处理**的误差。它只在转向时发作，直线和静止时为 0。
 
-### 两个分量为什么不合并
+### 要重做的话
 
-| 分量 | 值 | 性质 |
-|---|---|---|
-| `scan_time / 2` | ~49.7 ms | **几何量**。转速/scan_mode 变了自动跟随 |
-| `kScanChainLatencyS` | 32.4 ms | **实测量**。scan 链相对 odom/EKF 链的固定延迟 |
+工具还在：`ros2 run my_bot_hw lidar_diag.py tshift <摆动采集.npz>`
+（正对直墙 1.0~1.5 m，原地往复摆动，`record --with-odom`）。
+它会直接打印全帧均值 Δ，不依赖任何符号约定。
 
-合并成一个 82 ms 的常数，转速一变就悄悄错了。
+**⚠ 不要用 `delay` 子命令**：它假设第 i 束采样于 `stamp + i×time_increment`，
+而本机方向是反的，算出来的 τ / t_eff 都是错的。
 
-### ⚠ 什么情况下必须重标 `kScanChainLatencyS`
-
-它是**相对量**，不能断言全在雷达侧 —— EKF 输出滞后于自身时间戳会产生一模一样的特征。
-下列任一变化后都要重标，**别把它当物理常数**：
-
-- 改 `scan_mode` / 雷达转速 / `angle_compensate`
-- 换 USB 线、换口、改串口波特率
-- EKF（`ekf_hw.yaml`）的频率或滤波结构变化
-- 开发板 CPU 负载结构性变化（例如新增一个吃满一核的节点）
-- DDS 配置变化
-
-重标方法（车会动，约 45 s）。**正对一面直墙 1.0~1.5 m**，车原地往复摆动 ±15° 左右：
-
-```bash
-python3 src/my_bot_hw/scripts/lidar_diag.py record --duration 45 --with-odom \
-        --out ~/lidar_diag/a2_new.npz &
-sleep 2; <让车摆动 46 s>; wait
-python3 src/my_bot_hw/scripts/lidar_diag.py tshift ~/lidar_diag/a2_new.npz
-```
-
-`tshift` 会直接打印「全帧均值 Δ」和该把 `kScanChainLatencyS` 调多少。
-目标 `|Δ| < 10 ms`。
-
-> ⚠ **不要用 `delay` 子命令**：它假设第 i 束采样于 `stamp + i×time_increment`，
-> 而本机方向是反的，算出来的 τ / t_eff 都是错的（它据此给出过"畸变主导，
-> 直接上 C2"的错误结论）。`tshift` 不依赖任何符号约定。
->
-> ⚠ 若 `tshift` 报"采用窗不足 3 个"，**先看每行的 Δ 是不是已经排成一条直线**。
-> 是的话数据没问题，只是门限太严（近距/杂乱场景墙面拟合本就更噪），
-> 放宽 `--max-rms` 重跑。2026-08-14 踩过：写死 1.5° 把 20 个好窗全判成"没有直墙段"。
-
-### 这个补丁**没有**解决什么
-
-`time_increment` 仍然是**正值**，而实际采样时刻随索引**递减**
-（`publish_scan()` 的 `reverse_data` 分支把 ranges 倒序写入 `ranges[node_count-1-i]`，
-却没有相应处理时间）。所以：
-
-- 任何按 `stamp + i × time_increment` 做**逐点** deskew 的下游依旧算错，
-  而且是**反向加倍**，不是不管用。
-- 帧内 102.5 ms 的采样时刻跨度（0.6 rad/s 下 3.5° 的渐变错位）本补丁动不了。
-
-这两点是 spec 里 C2 的射程。**要写 deskew 就必须用倒序**：
-`t_i = stamp + (M−1−i) × time_increment + 常数`。
+**⚠ 帧内时间是倒序的**（`publish_scan()` 的 `reverse_data` 分支倒序写
+`ranges[node_count-1-i]` 却没有相应处理时间），这一点与本补丁在不在无关，
+一直成立。任何逐点 deskew 必须用 `t_i = stamp + (M−1−i) × time_increment + 常数`，
+按正向算会让畸变**反向加倍**。
