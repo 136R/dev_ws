@@ -9,6 +9,7 @@
 #   ./lidar_diag.py noise  ~/a0.npz                                   # A1 噪声本底 + 滤波阈值
 #   ./lidar_diag.py record --duration 45 --with-odom --out ~/a2.npz   # A2 摆动采集
 #   ./lidar_diag.py delay  ~/a2.npz                                   # A2/A3 时延 + 帧内畸变
+#   ./lidar_diag.py compare ~/b_raw.npz ~/b_filt.npz --keep-sector=-20:20   # B 验收：滤波前后对比
 #
 # ⚠ 不要把结果存进 /tmp —— 开发板的 /tmp 是 tmpfs，重启即失（2026-08-14 丢过一次数据）。
 #
@@ -443,6 +444,99 @@ def cmd_delay(args):
               f'否则 t_eff({te*1000:.0f}ms) 会被整个误算进 τ')
 
 
+# ─────────────────────────── B 阶段验收：滤波前后对比 ───────────────────────────
+
+def _shadow_deg(c):
+    """相邻点对的 shadow 角（度）+ 有效掩码。与 ScanShadowsFilter 同式。"""
+    r1, r2 = c.r[:, :-1], c.r[:, 1:]
+    ok = c.valid[:, :-1] & c.valid[:, 1:]
+    with np.errstate(all='ignore'):
+        sh = np.degrees(np.abs(np.arctan2(r2 * math.sin(c.dth), r1 - r2 * math.cos(c.dth))))
+    return sh, ok & np.isfinite(sh)
+
+
+def _persistent_near(c, near, persist):
+    """持续性近点：命中率高于 persist 且距离中位低于 near 的束。返回 (索引, 中位距离)。"""
+    rate = c.valid.mean(axis=0)
+    rr = np.where(c.valid, c.r, np.nan)
+    with np.errstate(all='ignore'):
+        med = np.nanmedian(rr, axis=0)
+    sel = (rate > persist) & np.isfinite(med) & (med < near)
+    idx = np.flatnonzero(sel)
+    return idx, med[idx]
+
+
+def cmd_compare(args):
+    """滤波前后对比。两份采集必须是**同一静止场景**、车没动过，否则没有可比性。"""
+    a = Capture(args.raw, args.lidar_yaw)        # /scan
+    b = Capture(args.filtered, args.lidar_yaw)   # /scan_filtered
+    if a.m != b.m:
+        sys.exit(f'束数不一致（{a.m} vs {b.m}）—— 不是同一雷达配置，没法逐束比')
+    if abs(math.degrees(a.dth) - math.degrees(b.dth)) > 1e-3:
+        sys.exit('角分辨率不一致 —— 两份采集不是同一配置')
+
+    print(f'== B 阶段验收：滤波前后对比 ==  分辨率 {math.degrees(a.dth):.3f}°/束')
+    print(f'   raw      {args.raw}：{a.n} 帧')
+    print(f'   filtered {args.filtered}：{b.n} 帧')
+    na, nb = a.valid.sum(axis=1).mean(), b.valid.sum(axis=1).mean()
+    print(f'\n   每帧有效点数：{na:.1f} → {nb:.1f}'
+          f'（滤掉 {na - nb:.1f} 点 = {(1 - nb / na) * 100:.1f}%）')
+
+    ok_all = True
+
+    # ── B1/B2：掠射伪点 ──
+    sha, oka = _shadow_deg(a)
+    shb, okb = _shadow_deg(b)
+    ca = (oka & (sha < args.shadow_thresh)).sum(axis=1).mean()
+    cb = (okb & (shb < args.shadow_thresh)).sum(axis=1).mean()
+    drop = (1 - cb / ca) * 100 if ca > 0 else float('nan')
+    print(f'\n── B1/B2 掠射伪点（shadow 角 < {args.shadow_thresh:.0f}°）──')
+    print(f'   每帧点对数：{ca:.1f} → {cb:.1f}   **降幅 {drop:.1f}%**（判据 ≥80%）')
+    if not (drop >= 80.0):
+        print('   ✗ 未达标 —— 先看是不是 min_angle 太宽松，别急着加 neighbors')
+        ok_all = False
+    else:
+        print('   ✓')
+
+    # ── B3a：贴身假障碍 ──
+    ia, ma = _persistent_near(a, args.near, args.persist)
+    ib, mb = _persistent_near(b, args.near, args.persist)
+    print(f'\n── B3a 贴身假障碍（命中率 > {args.persist:.0%} 且距离中位 < {args.near} m）──')
+    print(f'   raw 有 {len(ia)} 束，filtered 有 {len(ib)} 束（判据：filtered = 0）')
+    for i, m in zip(ib, mb):
+        base = math.degrees(float(a.to_base(np.array([a.ang[i]]))[0]))
+        print(f'     ✗ 残留：base {base:+7.1f}°  距离中位 {m:.3f} m')
+    if len(ib) == 0:
+        print('   ✓')
+    else:
+        ok_all = False
+
+    # ── B3a 不误伤 / B1 不吃真实边缘 ──
+    if args.keep_sector:
+        print(f'\n── 不误伤：这些扇区的点数不许掉（判据 ≤{args.keep_tol:.0f}%）──')
+        a_base = np.degrees(a.to_base(a.ang))
+        for spec_str in args.keep_sector:
+            try:
+                lo, hi = (float(v) for v in spec_str.split(':'))
+            except ValueError:
+                sys.exit(f'--keep-sector 格式应为 lo:hi（base_link 角度，度），收到 {spec_str!r}')
+            sel = (a_base >= lo) & (a_base <= hi) if lo <= hi else (a_base >= lo) | (a_base <= hi)
+            ka = a.valid[:, sel].sum(axis=1).mean()
+            kb = b.valid[:, sel].sum(axis=1).mean()
+            loss = (1 - kb / ka) * 100 if ka > 0 else float('nan')
+            mark = '✓' if loss <= args.keep_tol else '✗'
+            print(f'   {mark} base [{lo:+.1f}°, {hi:+.1f}°]（{sel.sum()} 束）：'
+                  f'每帧 {ka:.1f} → {kb:.1f}，损失 {loss:.1f}%')
+            if not (loss <= args.keep_tol):
+                ok_all = False
+    else:
+        print('\n   ⚠ 没给 --keep-sector —— 「不许误伤」这条**没有验**。'
+              '\n     把纸盒/门框/桌腿所在的 base_link 角度区间传进来，例如 --keep-sector -20:20')
+        ok_all = False
+
+    print(f'\n{"== 全部通过 ==" if ok_all else "== 有未通过项，见上面的 ✗ =="}')
+
+
 # ─────────────────────────── CLI ───────────────────────────
 
 def main():
@@ -493,6 +587,23 @@ def main():
     d.add_argument('--deskewed', action='store_true',
                    help='数据来自已做 deskew 的链路（C2 之后）；置位则不做 t_eff 修正')
     d.set_defaults(func=cmd_delay)
+
+    k = sub.add_parser('compare', help='B 阶段验收：滤波前后对比（两份同场景静止采集）')
+    k.add_argument('raw', help='/scan 的采集')
+    k.add_argument('filtered', help='/scan_filtered 的采集')
+    k.add_argument('--shadow-thresh', type=float, default=10.0,
+                   help='判为掠射伪点的 shadow 角上限 (deg)，默认 10')
+    k.add_argument('--near', type=float, default=0.25,
+                   help='贴身假障碍的距离上限 (m)，默认 0.25')
+    k.add_argument('--persist', type=float, default=0.5,
+                   help='算「持续性」的命中率下限，默认 0.5')
+    k.add_argument('--keep-sector', action='append', metavar='LO:HI',
+                   help='不许误伤的 base_link 角度区间 (deg)，可重复给。'
+                        '⚠ 负角度必须用等号形式，否则 argparse 会把它当成选项：'
+                        '--keep-sector=-20:20 --keep-sector=80:110')
+    k.add_argument('--keep-tol', type=float, default=5.0,
+                   help='上述区间允许的点数损失上限 (%%)，默认 5')
+    k.set_defaults(func=cmd_compare)
 
     args = p.parse_args()
     args.func(args)
