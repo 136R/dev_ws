@@ -210,7 +210,7 @@ class SLlidarNode : public rclcpp::Node
         auto scan_msg = std::make_shared<sensor_msgs::msg::LaserScan>();
 
         // ───── 本地修改 (vendor patch) 2026-08-14：把 header.stamp 挪到本帧真正对应的时刻 ─────
-        // 详见 src/sllidar_ros2/本地修改.md 与 docs/spec/2026-08-14-2D激光链路优化.md 的 C1。
+        // 详见 docs/vendor/sllidar_ros2_本地修改.md 与 docs/spec/2026-08-14-2D激光链路优化.md 的 C1。
         //
         // 上游把 header.stamp 填成 start_scan_time，而 start_scan_time 是在 grabScanDataHq()
         // **阻塞之前**取的（work_loop 里），下游又用它去查 TF 并代表整整 100 ms 的数据。
