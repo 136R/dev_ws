@@ -209,7 +209,28 @@ class SLlidarNode : public rclcpp::Node
         static int scan_count = 0;
         auto scan_msg = std::make_shared<sensor_msgs::msg::LaserScan>();
 
-        scan_msg->header.stamp = start;
+        // ───── 本地修改 (vendor patch) 2026-08-14：把 header.stamp 挪到本帧真正对应的时刻 ─────
+        // 详见 src/sllidar_ros2/本地修改.md 与 docs/spec/2026-08-14-2D激光链路优化.md 的 C1。
+        //
+        // 上游把 header.stamp 填成 start_scan_time，而 start_scan_time 是在 grabScanDataHq()
+        // **阻塞之前**取的（work_loop 里），下游又用它去查 TF 并代表整整 100 ms 的数据。
+        // A2 实测（7 个索引窗对 odom yaw 做时移拟合）：本帧的束实际测于
+        //   stamp + 134.9 ms − i × 142.6 µs，即 stamp+32.4 ms ~ stamp+134.9 ms，均值 +83.6 ms。
+        // 转向 0.6 rad/s 时这 83.6 ms = 2.9° 角度误差，3 m 处横向错位 15 cm，
+        // 而 costmap 的 obstacle_layer 不做任何配准，是照单全收的。
+        //
+        // 两个分量含义不同，故不合并成一个常数：
+        //   scan_time/2  —— 帧中心，几何量，转速变了自动跟随
+        //   kScanChainLatencyS —— scan 链相对 odom/EKF 链的**相对**固定延迟，实测量
+        //
+        // ⚠ 这个常数不能断言全在雷达侧（EKF 输出滞后于自身时间戳会产生一模一样的特征）。
+        //   CPU 负载 / DDS / scan_mode 改了必须用 lidar_diag.py delay 重标，别当物理常数。
+        // ⚠ 本改动**不动** time_increment：它仍为正，而实际采样时刻随索引**递减**
+        //   （见下面 reverse_data 分支）。逐点 deskew 的下游依旧会算错，那是 C2 的事。
+        static constexpr double kScanChainLatencyS = 0.0324;
+        scan_msg->header.stamp =
+            start + rclcpp::Duration::from_seconds(scan_time / 2.0 + kScanChainLatencyS);
+        // ───── 本地修改结束 ─────
         scan_msg->header.frame_id = frame_id;
         scan_count++;
 
