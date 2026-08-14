@@ -74,6 +74,10 @@ class SLlidarNode : public rclcpp::Node
         this->declare_parameter<std::string>("serial_port", "/dev/ttyUSB0");
         this->declare_parameter<int>("serial_baudrate",1000000);
         this->declare_parameter<std::string>("frame_id","laser_frame");
+        // 本地修改 (vendor patch)：C1 时间戳校正的两个开关。见 docs/vendor/sllidar_ros2_本地修改.md
+        // 两个都设成 false / 0.0 = 完全恢复上游行为（用于 A/B 对照，不需要重编）。
+        this->declare_parameter<bool>("stamp_use_frame_center", true);
+        this->declare_parameter<double>("stamp_extra_offset", 0.0324);
         this->declare_parameter<bool>("inverted", false);
         this->declare_parameter<bool>("angle_compensate", false);
         this->declare_parameter<std::string>("scan_mode",std::string());
@@ -87,6 +91,12 @@ class SLlidarNode : public rclcpp::Node
         this->get_parameter_or<std::string>("serial_port", serial_port, "/dev/ttyUSB0"); 
         this->get_parameter_or<int>("serial_baudrate", serial_baudrate, 1000000/*256000*/);//ros run for A1 A2, change to 256000 if A3
         this->get_parameter_or<std::string>("frame_id", frame_id, "laser_frame");
+        this->get_parameter_or<bool>("stamp_use_frame_center", stamp_use_frame_center, true);
+        this->get_parameter_or<double>("stamp_extra_offset", stamp_extra_offset, 0.0324);
+        RCLCPP_INFO(this->get_logger(),
+            "[vendor patch] stamp 校正: frame_center=%s, extra_offset=%.4f s%s",
+            stamp_use_frame_center ? "on" : "off", stamp_extra_offset,
+            (!stamp_use_frame_center && stamp_extra_offset == 0.0) ? "  (= 上游原始行为)" : "");
         this->get_parameter_or<bool>("inverted", inverted, false);
         this->get_parameter_or<bool>("angle_compensate", angle_compensate, false);
         this->get_parameter_or<std::string>("scan_mode", scan_mode, std::string());
@@ -227,9 +237,12 @@ class SLlidarNode : public rclcpp::Node
         //   CPU 负载 / DDS / scan_mode 改了必须用 lidar_diag.py delay 重标，别当物理常数。
         // ⚠ 本改动**不动** time_increment：它仍为正，而实际采样时刻随索引**递减**
         //   （见下面 reverse_data 分支）。逐点 deskew 的下游依旧会算错，那是 C2 的事。
-        static constexpr double kScanChainLatencyS = 0.0324;
-        scan_msg->header.stamp =
-            start + rclcpp::Duration::from_seconds(scan_time / 2.0 + kScanChainLatencyS);
+        // 两个分量由参数控制，都关掉 = 上游原始行为（A/B 对照用，不必重编）：
+        //   stamp_use_frame_center (bool,   默认 true)   → 加 scan_time/2
+        //   stamp_extra_offset     (double, 默认 0.0324) → 加实测的链路相对延迟 (s)
+        const double stamp_shift =
+            (stamp_use_frame_center ? scan_time / 2.0 : 0.0) + stamp_extra_offset;
+        scan_msg->header.stamp = start + rclcpp::Duration::from_seconds(stamp_shift);
         // ───── 本地修改结束 ─────
         scan_msg->header.frame_id = frame_id;
         scan_count++;
@@ -476,6 +489,8 @@ public:
     int serial_baudrate = 115200;
     std::string frame_id;
     bool inverted = false;
+    bool stamp_use_frame_center = true;   // 本地修改 (vendor patch)：见 C1
+    double stamp_extra_offset = 0.0324;   // 秒
     bool angle_compensate = true;
     float max_distance = 8.0;
     size_t angle_compensate_multiple = 1;//it stand of angle compensate at per 1 degree
