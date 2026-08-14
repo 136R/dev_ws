@@ -60,7 +60,10 @@ def cmd_record(args):
 
     class Recorder(Node):
         def __init__(self):
-            super().__init__('lidar_diag_recorder')
+            # 节点名带上话题：B 阶段验收要**同时**采 /scan 和 /scan_filtered
+            # （先后采会把场景漂移算成滤波效果，2026-08-14 踩过），两个进程不能重名。
+            suffix = ''.join(ch if ch.isalnum() else '_' for ch in args.scan_topic).strip('_')
+            super().__init__(f'lidar_diag_recorder_{suffix}')
             self.scans, self.scan_t = [], []
             self.meta = None
             self.odom_t, self.odom_yaw = [], []
@@ -467,7 +470,13 @@ def _persistent_near(c, near, persist):
 
 
 def cmd_compare(args):
-    """滤波前后对比。两份采集必须是**同一静止场景**、车没动过，否则没有可比性。"""
+    """滤波前后对比。
+
+    ⚠ 两份采集必须**同时**进行（两个 record 进程并行跑），不能先后采。
+      2026-08-14 踩过：先后各采 60 s，中间一个 1.5 m 处的东西自己动了，
+      于是那几束的命中率 0.86 → 0.09，被当成"滤波器吃掉了真实墙点"。
+      场景里只要有任何会动的东西（人、椅子、门），先后采集的差值就不可归因。
+    """
     a = Capture(args.raw, args.lidar_yaw)        # /scan
     b = Capture(args.filtered, args.lidar_yaw)   # /scan_filtered
     if a.m != b.m:
