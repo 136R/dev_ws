@@ -60,6 +60,7 @@ install(PROGRAMS
   scripts/imu_gyro_bias.py
   scripts/imu_gyro_deadband.py
   scripts/straight_drive_corrector.py
+  scripts/lidar_diag.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
