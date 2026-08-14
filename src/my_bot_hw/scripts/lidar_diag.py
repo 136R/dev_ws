@@ -325,6 +325,18 @@ def cmd_noise(args):
 # ─────────────────────────── A2/A3 时延与帧内畸变 ───────────────────────────
 
 def cmd_delay(args):
+    """⚠ 本子命令的 τ / t_eff / 分支判据在本机**不可信**，只保留给历史数据对照。
+
+    它假设第 i 束的采样时刻 = header.stamp + i × time_increment。2026-08-14 实测证明
+    **方向是反的**（sllidar 的 reverse_data 分支倒序写 ranges 却没处理时间），
+    于是 t_eff 算错、τ 出现物理上不可能的负值、`τ + t_eff` 这个和也失去意义。
+
+    要量「下游按 header.stamp 查 TF 的实际误差」，用 `~/lidar_diag/tcheck2.py`
+    那套方法：沿整圈取多个索引窗，各自求「几何对应 odom yaw 在 stamp+Δ 的值」的 Δ，
+    再对索引线性拟合。它不依赖任何符号约定，且能顺带验出时间方向对不对。
+    """
+    print('⚠ delay 的分支判据基于已被推翻的正向时间模型，结果仅供历史对照 —— '
+          '见本函数 docstring 与 spec 的 A2 追加自证\n')
     c = Capture(args.npz, args.lidar_yaw)
     if len(c.odom_t) == 0:
         sys.exit('这份采集没有 odom —— A2 要用 `record --with-odom` 重采')
