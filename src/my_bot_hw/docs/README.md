@@ -52,6 +52,7 @@ STM32F303 ←─ UART /dev/ttyS7 @115200 ─→ Stm32SerialHardware
 | --- | --- |
 | 启动、遥控、话题调试命令 | [速查.md](速查.md) |
 | 话题怎么流、各环节频率是多少 | [话题与频率.md](话题与频率.md) |
+| **换了轮胎/底盘/雷达，要重新标定** | [里程计与雷达标定.md](里程计与雷达标定.md) |
 | IMU 加速度计标定 | [imu标定.md](imu标定.md) |
 | 激光雷达过滤链调参 | [激光过滤调参.md](激光过滤调参.md) |
 | STM32 侧（PI 增益、编码器、减速比） | `firmware/my_robot_stm32/Core/Inc/app/robot_config.h` |
