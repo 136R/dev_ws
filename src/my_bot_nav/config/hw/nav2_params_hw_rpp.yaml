@@ -192,6 +192,10 @@ local_costmap:
           clearing: True
           marking: True
           data_type: "LaserScan"
+          # range filter 把超程点换成 +inf；默认 inf_is_valid=false 会把这些束**整束丢弃**，
+          # 于是那个方向根本不做 raytrace 清障，动态障碍走了也留残影。
+          # True = 把 +inf 当作"测到 range_max"，用于清障。（spec F6）
+          inf_is_valid: True
           raytrace_max_range: 3.0
           raytrace_min_range: 0.0
           obstacle_max_range: 2.5
@@ -236,6 +240,7 @@ global_costmap:
           clearing: True
           marking: True
           data_type: "LaserScan"
+          inf_is_valid: True           # 同 local_costmap，见上面的说明（spec F6）
           raytrace_max_range: 4.0
           raytrace_min_range: 0.0
           obstacle_max_range: 3.5

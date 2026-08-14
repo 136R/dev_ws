@@ -1,38 +1,96 @@
+# 激光滤波链（实机）。顺序有语义，不可换：
+#   /scan → [1] range → [2] shadow → [3] speckle → [4] polygon → /scan_filtered
+# 数值来源：docs/spec/2026-08-14-2D激光链路优化.md 阶段 A 的实测（2026-08-14，601 帧静止采集）。
+# ⚠ 所有"相邻点"类阈值都与角分辨率强绑定。本机 /scan = 720 束/圈 = 0.501°/束、10.02 Hz。
+#   改了 scan_mode / angle_compensate 必须重跑 `lidar_diag.py noise` 重取分位数，不要沿用。
 laser_filter:
   ros__parameters:
     filter1:
       # ── 1. 距离范围过滤 ────────────────────────────────────────────────
-      # 去掉 C1 盲区近点（< 0.10m）和超出有效量程的远点（> 5.0m）
+      # 去掉 C1 盲区近点（< 0.10m）和超出有效量程的远点（> 8.0m）
       # 超出范围的点替换为 ±inf，slam_toolbox / Nav2 会自动忽略 inf 值
+      #
+      # lower_threshold 保持 0.10（A0 判定 2：立柱回波中位落在 0.087~0.093，
+      # 只有 0.2% 超过 0.10 ⇒ 早就被这一级砍干净了，spec 的 B3a′「降到 0.09」判为不做）
       name: 'range_filter'
       type: 'laser_filters/LaserScanRangeFilter'
       params:
         use_message_range_limits: false
-        lower_threshold: 0.1          # 低于此距离视为盲区噪点（米）
+        lower_threshold: 0.1           # 低于此距离视为盲区噪点（米）
         upper_threshold: 8.0           # 高于此距离视为无效远点（米）
         lower_replacement_value: -.inf
         upper_replacement_value: .inf
 
     filter2:
-      # ── 2. 斑点过滤 ────────────────────────────────────────────────────
+      # ── 2. 掠射伪点（拖尾点）过滤 ──────────────────────────────────────
+      # 必须排在 speckle 之前：拖尾点是**连成串**的，speckle 的邻域窗口判据
+      # 结构性抓不到（这也是为什么单纯收紧 speckle 阈值治不了拖尾）。
+      #
+      # 判据与 A1 完全同式：angle = atan2(r2·sin Δθ, r1 − r2·cos Δθ)，
+      # 落在 [min_angle, max_angle] 之外视为掠射。A1 实测该角的 1% 分位 = 18.55°
+      # （0.5% 分位 17.20°，中位 89.75°）⇒ 取 18 / 162，只砍最掠射的那一小撮。
+      #
+      # ⚠ remove_shadow_start_point 必须为 false：它会连**触发点本身**一起删，
+      #   而触发点常常是真实薄障碍（门框/桌腿）的边缘点。现配置只删「更远的那个」
+      #   —— 拖尾点总是拖在真实表面**后面**，正好是它。
+      # ⚠ neighbors 不能为 0：为 0 时删除循环退化成自比较，整个滤波器空转。
+      name: 'shadow_filter'
+      type: 'laser_filters/ScanShadowsFilter'
+      params:
+        min_angle: 18                  # 度，[0,90]；A1 的 1% 分位
+        max_angle: 162                 # 度，[90,180]；= 180 − min_angle
+        window: 1                      # 只与紧邻的点比（0.5°/束下拖尾串很短）
+        neighbors: 1                   # 命中后向外删 1 个「更远的」邻点
+        remove_shadow_start_point: false
+
+    filter3:
+      # ── 3. 斑点过滤 ────────────────────────────────────────────────────
       # 消除孤立的随机噪点（玻璃反射、粉尘、单点跳变等）
       # filter_type=0 (DISTANCE)：若某点与相邻窗口内的点距离差超过阈值则删除
+      #
+      # 0.6 → 0.24：A1 实测相邻点跳变的 99.5% 分位 = 0.236 m（99% 分位 0.093）。
+      # 旧值 0.6 接近空转；docs/激光过滤调参.md 里记的 0.1 是另一个从未生效的值。
       name: 'speckle_filter'
       type: 'laser_filters/LaserScanSpeckleFilter'
       params:
         filter_type: 0                 # 0=DISTANCE（距离差判断），1=EUCLIDEAN（欧式聚类）
-        max_range: 8.0                 # 点做斑点检测
-        max_range_difference: 0.6     # 与窗口内点的最大允许距离差（米），超过视为斑点
-        filter_window: 2              # 检测窗口半径（检查前后各 2 个点，共 5 点窗口）
+        max_range: 8.0                 # 超过此距离的点不做斑点检测
+        max_range_difference: 0.24     # 与窗口内点的最大允许距离差（米），超过视为斑点
+        filter_window: 2               # 检测窗口半径（检查前后各 2 个点，共 5 点窗口）
 
-    filter3:
-      # ── 3. 角度边界过滤（车体遮挡预留位）─────────────────────────────
-      # 用于屏蔽被支撑柱/线缆遮挡的固定角度扇区
-      # 当前 lower_angle = upper_angle = 0.0，即不过滤任何角度（占位状态）
-      # 调试方法：在 RViz 中观察 /scan_filtered，找到遮挡角度后填写实际范围
-      # 注意：lower_angle < upper_angle，单位为弧度（正方向逆时针）
-      name: 'angular_bounds_filter'
-      type: 'laser_filters/LaserScanAngularBoundsFilterInPlace'
+    filter4:
+      # ── 4. 车体自遮挡（多边形）─────────────────────────────────────────
+      # 替换掉原来那个 lower_angle == upper_angle == 0.0 的角度扇区占位。
+      # 车体是不规则多边形、且 base_link 不在圆盘圆心（盘心在其后方 0.047），
+      # 角度扇区法要手工标多段且外参一改就失效 —— 用多边形按几何精确删。
+      #
+      # polygon = 裸外廓（无余量），与 nav2 各 *_params_*.yaml 里注释的那份**同一个值**，
+      # 也与 my_bot/description/robot_core.xacro 对得上：
+      #   圆盘 以 (-0.047, 0) 为心、r = 0.11
+      #   驱动轮 俯视矩形 x∈[-0.035, 0.035]、|y|∈[0.082, 0.11]（轮心 y=0.096、厚 0.028）
+      # 余量交给 polygon_padding，不要把「外廓 + 余量」的成品数抄进来（那会多出一份真相）。
+      #
+      # ⚠ padPolygon 是**按坐标轴符号**加余量（pt.x += sign(x)·pad，y 同理），
+      #   不是法向等距外扩 ⇒ 四个主轴方向正好 20 mm，斜向约 28 mm。偏差在"多删一点"
+      #   这一侧，可接受。主轴极值与 nav2 footprint 完全一致（前 0.083 / 侧 ±0.13 / 后 −0.177）。
+      # ⚠ invert 必须是 false —— false = 删多边形**内**的点（我们要的）；
+      #   true = 删多边形**外**的点，等于清空整帧。
+      # ⚠ 用 Static 变体：它只在第一帧把多边形转进 laser_frame 并缓存，之后逐点比对，
+      #   省掉每帧 720 点的 TF 变换。代价是**改了 lidar 外参必须重启**才会重新取 TF。
+      #
+      # 顺带覆盖：四根 ⌀6 mm 立柱的回波（前柱距 base_link 0.077 m、后柱 0.140 m），
+      # 以及 A0 反证发现的、CAD 未描述的那个 −135° 方向约 8° 宽的遮挡物（0.091~0.094 m）。
+      name: 'body_polygon_filter'
+      type: 'laser_filters/StaticLaserScanPolygonFilter'
       params:
-        lower_angle: 0.0              # 【预留位】遮挡扇区起始角（弧度），调试后填写
-        upper_angle: 0.0              # 【预留位】遮挡扇区结束角（弧度），调试后填写
+        polygon_frame: 'base_link'
+        polygon: "[[0.063, 0.0615], [0.035, 0.11], [-0.0765, 0.11], [-0.1275, 0.0805], [-0.157, 0.0295], [-0.157, -0.0295], [-0.1275, -0.0805], [-0.0765, -0.11], [0.035, -0.11], [0.063, -0.0615]]"
+        polygon_padding: 0.02          # 米，见上面 padPolygon 的说明
+        invert: false                  # false = 删多边形内的点
+
+    # ── 5.（未启用）立柱阴影的角度扇区过滤 ───────────────────────────────
+    # spec 的 B3b，判为【无收益，不做】：
+    #   四根柱子合计只挡 13.41° 视野，且阴影区内的束直接返回柱面距离（已由 filter4 删净）。
+    #   B3b 只负责扇区**边缘**的掠射伪点，而 A0 的反证栏显示那两束近点就是遮挡物本体、
+    #   不是边缘伪点 —— 边缘本就干净。要做的话用 AngularBoundsFilterInPlace（非 InPlace
+    #   变体会改变点数组长度，破坏角度映射）。
