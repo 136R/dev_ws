@@ -8,7 +8,8 @@
 #   ./lidar_diag.py verify ~/a0.npz                                   # A0 立柱核对
 #   ./lidar_diag.py noise  ~/a0.npz                                   # A1 噪声本底 + 滤波阈值
 #   ./lidar_diag.py record --duration 45 --with-odom --out ~/a2.npz   # A2 摆动采集
-#   ./lidar_diag.py delay  ~/a2.npz                                   # A2/A3 时延 + 帧内畸变
+#   ./lidar_diag.py tshift ~/a2.npz                                   # A2/C1 时间戳偏移标定 ← 用这个
+#   ./lidar_diag.py delay  ~/a2.npz                                   # ⚠ 时间模型已被推翻，仅历史对照
 #   ./lidar_diag.py compare ~/b_raw.npz ~/b_filt.npz --keep-sector=-20:20   # B 验收：滤波前后对比
 #
 # ⚠ 不要把结果存进 /tmp —— 开发板的 /tmp 是 tmpfs，重启即失（2026-08-14 丢过一次数据）。
@@ -459,6 +460,99 @@ def cmd_delay(args):
               f'否则 t_eff({te*1000:.0f}ms) 会被整个误算进 τ')
 
 
+# ──────────────── 时间戳偏移标定（取代 delay，A2/C1 的权威口径）────────────────
+
+def cmd_tshift(args):
+    """量「这一帧的几何，对应 odom yaw 在 header.stamp + Δ 的值」，Δ 随索引怎么变。
+
+    为什么不用 delay：delay 假设第 i 束采样于 stamp + i×time_increment。实测方向是
+    反的（sllidar 的 reverse_data 分支倒序写 ranges 却没处理时间），于是它的 τ / t_eff
+    都算错。本子命令**不依赖任何符号约定**：沿整圈取多个索引窗，每个窗独立求最优 Δ，
+    再对索引线性拟合 ——
+      斜率 ÷ time_increment ≈ +1 ⇒ 驱动的帧内时间模型正确
+      斜率 ÷ time_increment ≈ −1 ⇒ 数组相对时间倒序（本机就是这种）
+      全帧均值 Δ = 下游按 header.stamp 查 TF 的实际误差 ← 要消掉的就是它
+
+    采集要求同 A2：正对直墙 1.0~1.5 m，原地往复摆动，`record --with-odom`。
+    """
+    c = Capture(args.npz, args.lidar_yaw)
+    if len(c.odom_t) == 0:
+        sys.exit('这份采集没有 odom —— 要用 `record --with-odom` 重采')
+    psi_u = np.unwrap(c.odom_yaw)
+    grid = np.arange(-args.search, args.search + 1e-9, 0.001)
+    print(f'== 时间戳偏移标定 ==  {c.n} 帧，scan_time={c.scan_time*1000:.1f} ms，'
+          f'time_increment={c.time_increment*1e6:.1f} µs')
+    print(f'   窗半宽 {args.half} 束（{(2*args.half+1)*math.degrees(c.dth):.1f}°）'
+          f'，resid≤{args.max_resid} m，最少 {args.min_frames} 帧，'
+          f'RMS≤{args.max_rms}°，跳变≤{args.max_jump}°')
+    print(f'\n{"窗中心i":>7} {"base角":>8} {"拟出帧":>7} {"跳变max":>9} {"Δ(ms)":>9}  结果')
+
+    rows, dropped = [], {}
+    for k in range(args.half, c.m - args.half, args.step):
+        idx0 = np.arange(k - args.half, k + args.half + 1)
+        th, tt = [], []
+        for i in range(c.n):
+            idx = idx0[c.valid[i, idx0]]
+            if len(idx) < max(8, args.half):
+                continue
+            x = c.r[i, idx] * np.cos(c.ang[idx])
+            y = c.r[i, idx] * np.sin(c.ang[idx])
+            n, resid = fit_wall_normal(x, y)
+            if n is None or resid > args.max_resid:
+                continue
+            th.append(n)
+            tt.append(c.t[i])
+        base = math.degrees(float(c.to_base(np.array([c.ang[k]]))[0]))
+        if len(th) < args.min_frames:
+            print(f'{k:7d} {base:8.1f} {len(th):7d} {"-":>9} {"-":>9}  拟出帧不足')
+            dropped['帧不足'] = dropped.get('帧不足', 0) + 1
+            continue
+        th = np.unwrap(np.asarray(th) * 2) / 2      # 法向有 π 周期
+        tt = np.asarray(tt)
+        jmp = math.degrees(np.abs(np.diff(th)).max())
+        if jmp > args.max_jump:
+            print(f'{k:7d} {base:8.1f} {len(th):7d} {jmp:8.1f}° {"-":>9}  法向跳变过大'
+                  f'（窗里换了另一个物体）')
+            dropped['跳变'] = dropped.get('跳变', 0) + 1
+            continue
+        var = np.array([np.var(-th - np.interp(tt + g, c.odom_t, psi_u)) for g in grid])
+        j = int(np.argmin(var))
+        rms = math.degrees(math.sqrt(var[j]))
+        ok = rms <= args.max_rms
+        print(f'{k:7d} {base:8.1f} {len(th):7d} {jmp:8.1f}° {grid[j]*1000:+9.1f}  '
+              f'{"采用" if ok else f"RMS {rms:.2f}° 超限"}')
+        if ok:
+            rows.append((k, grid[j]))
+        else:
+            dropped['RMS'] = dropped.get('RMS', 0) + 1
+
+    if len(rows) < 3:
+        print(f'\n   采用窗不足 3 个。淘汰原因：{dropped}')
+        print('   ⚠ 先看上面每行的 Δ 是不是已经排成一条直线 —— 若是，说明数据是好的，'
+              '只是门限太严（近距/杂乱场景墙面拟合本就更噪），放宽 --max-rms 重跑。'
+              '\n     2026-08-14 踩过：写死 RMS≤1.5° 把 20 个好窗全判成"没有直墙段"。')
+        sys.exit(1)
+
+    ks = np.array([r[0] for r in rows], float)
+    ds = np.array([r[1] for r in rows])
+    s, b = np.polyfit(ks, ds, 1)
+    mid = b + s * (c.m - 1) / 2.0
+    print(f'\n   采用 {len(rows)} 个窗'
+          f'{"，淘汰 " + str(dropped) if dropped else ""}')
+    print(f'   斜率 = {s*1e6:+.1f} µs/束（time_increment = {c.time_increment*1e6:.1f}）'
+          f'  **比值 {s/c.time_increment:+.2f}**'
+          f'  {"← 帧内时间倒序" if s < 0 else "← 帧内时间正序"}')
+    print(f'   截距（i=0 处 Δ）= {b*1000:+.1f} ms，拟合残差 RMS = {np.std(ds-(b+s*ks))*1000:.1f} ms')
+    print(f'\n   → **全帧均值 Δ = {mid*1000:+.1f} ms**'
+          f'  ← 下游按 header.stamp 查 TF 的实际误差')
+    if abs(mid) < 0.010:
+        print(f'   ✓ |Δ| < 10 ms —— 时间戳偏移已校准')
+    else:
+        print(f'   ✗ |Δ| = {abs(mid)*1000:.1f} ms ≥ 10 ms —— '
+              f'把 sllidar_node.cpp 的 kScanChainLatencyS 调整 {-mid*1000:+.1f} ms 后重编重测')
+        print(f'     （见 docs/vendor/sllidar_ros2_本地修改.md）')
+
+
 # ─────────────────────────── B 阶段验收：滤波前后对比 ───────────────────────────
 
 def _shadow_deg(c):
@@ -608,6 +702,20 @@ def main():
     d.add_argument('--deskewed', action='store_true',
                    help='数据来自已做 deskew 的链路（C2 之后）；置位则不做 t_eff 修正')
     d.set_defaults(func=cmd_delay)
+
+    t = sub.add_parser('tshift', help='时间戳偏移标定（取代 delay，A2/C1 的权威口径）')
+    t.add_argument('npz', help='摆动采集（record --with-odom）')
+    t.add_argument('--half', type=int, default=20, help='窗半宽（束），默认 20')
+    t.add_argument('--step', type=int, default=20, help='窗中心步长（束），默认 20')
+    t.add_argument('--max-resid', type=float, default=0.015, help='直线拟合 RMS 残差上限 (m)')
+    t.add_argument('--min-frames', type=int, default=120, help='一个窗至少要拟出多少帧')
+    t.add_argument('--max-rms', type=float, default=2.6,
+                   help='采用一个窗的残差上限 (deg)。近距/杂乱场景要放宽 —— '
+                        '先看 Δ 是否已排成直线，别把好数据判成没数据')
+    t.add_argument('--max-jump', type=float, default=15.0,
+                   help='帧间法向跳变上限 (deg)，超了说明窗里换了物体')
+    t.add_argument('--search', type=float, default=0.30, help='Δ 搜索范围 ±s (秒)')
+    t.set_defaults(func=cmd_tshift)
 
     k = sub.add_parser('compare', help='B 阶段验收：滤波前后对比（两份同场景静止采集）')
     k.add_argument('raw', help='/scan 的采集')

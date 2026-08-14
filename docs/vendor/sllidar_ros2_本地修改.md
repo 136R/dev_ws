@@ -80,16 +80,25 @@ nav2 costmap、laser_filters 的 polygon filter）拿这个戳去查 TF，并把
 - 开发板 CPU 负载结构性变化（例如新增一个吃满一核的节点）
 - DDS 配置变化
 
-重标方法（车会动，约 45 s）：
+重标方法（车会动，约 45 s）。**正对一面直墙 1.0~1.5 m**，车原地往复摆动 ±15° 左右：
 
 ```bash
 python3 src/my_bot_hw/scripts/lidar_diag.py record --duration 45 --with-odom \
         --out ~/lidar_diag/a2_new.npz &
-sleep 2; python3 ~/lidar_diag/swing.py --duration 46; wait
-python3 src/my_bot_hw/scripts/lidar_diag.py delay ~/lidar_diag/a2_new.npz
+sleep 2; <让车摆动 46 s>; wait
+python3 src/my_bot_hw/scripts/lidar_diag.py tshift ~/lidar_diag/a2_new.npz
 ```
 
-改完之后残余误差应当 `|Δ| < 10 ms`。
+`tshift` 会直接打印「全帧均值 Δ」和该把 `kScanChainLatencyS` 调多少。
+目标 `|Δ| < 10 ms`。
+
+> ⚠ **不要用 `delay` 子命令**：它假设第 i 束采样于 `stamp + i×time_increment`，
+> 而本机方向是反的，算出来的 τ / t_eff 都是错的（它据此给出过"畸变主导，
+> 直接上 C2"的错误结论）。`tshift` 不依赖任何符号约定。
+>
+> ⚠ 若 `tshift` 报"采用窗不足 3 个"，**先看每行的 Δ 是不是已经排成一条直线**。
+> 是的话数据没问题，只是门限太严（近距/杂乱场景墙面拟合本就更噪），
+> 放宽 `--max-rms` 重跑。2026-08-14 踩过：写死 1.5° 把 20 个好窗全判成"没有直墙段"。
 
 ### 这个补丁**没有**解决什么
 
