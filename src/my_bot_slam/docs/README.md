@@ -19,7 +19,7 @@ nav_slam.launch.py                 → slam + nav 一起起（slam_mode:= 转发
 
 ## ⚠️ 不变量
 
-| 不变量 | 违反后的症状 | 依据 |
+| 不变量 | 违反后的症状 | 去哪看 |
 | --- | --- | --- |
 | **`serialize_map` 只在 mapping 模式可用，且被拒时仍返回 `result=0`** | 存图**静默失败** —— 服务说成功，磁盘上啥也没有 | localization 节点日志会打 `Cannot call serialize map in localization mode!`。所以 `save_map.sh` 靠**文件新鲜度**判断成败，不看返回码 |
 | **`map_file_name` 不在 yaml 里写死** | 手工改 yaml 会被 launch 的注入覆盖，白改 | `slam.launch.py` 按 `map:=` 或 `~/.maps/current_map` 现算，作为 launch 参数注入（优先级高于 yaml） |

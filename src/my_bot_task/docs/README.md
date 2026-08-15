@@ -39,7 +39,7 @@ app 点拓扑点 ──> 后端发 /goal_pose ──> task_manager（独占订�
 
 违反了就出错，但从代码里看不出来。
 
-| 不变量 | 违反后的症状 | 依据 |
+| 不变量 | 违反后的症状 | 去哪看 |
 | --- | --- | --- |
 | **`/goal_pose` 的订阅者只能有 `task_manager`** | remap 没生效 → 任务层和 Nav2 **各收一份目标**：机器人跑过去了，但不等待、不归位，行为诡异且极难查。**用 `ros2 topic info /goal_pose --verbose` 硬性检查** | `task.launch.py` 传 `goal_pose_topic:=nav2/goal_pose` |
 | **仿真必须传 `use_sim_time:=true`** | dwell 走墙钟 —— Gazebo 实时因子不是 1 时，"等 2 分钟"就不是 2 分钟 | `task.launch.py` 把它塞进节点 `parameters` |
@@ -47,7 +47,7 @@ app 点拓扑点 ──> 后端发 /goal_pose ──> task_manager（独占订�
 | **`task_params_file:=` 指到一个【不存在】的文件时，launch_ros 会静默忽略它** | 整个 yaml 都不加载 → 节点全用代码里的 `declare_parameter` 默认值，**没有任何报错**。症状：改了 `task_params.yaml` 的 `dwell_sec` 却不生效。**排查：`ros2 param get /task_manager dwell_sec` 和 yaml 对不上，就是它。**（实测踩过） | launch_ros 行为 |
 | **`scripts/*.py` 必须有可执行位（755）** | `--symlink-install` 把 install 目录软链回源文件，源文件没 `+x` → `ros2 run` 报 `No executable found` | 仓库现有脚本都是 755 |
 | **`home_pose` 不配就【整行注释掉】，不要写成 `[]`** | 空列表在 rclpy 里推断成 `NOT_SET` → 节点启动时抛 `ParameterUninitializedException` 直接崩 | `task_params.yaml` |
-| **待命点靠【名字】约定（`HOME`），不是拓扑的 `type` 字段** | 想当然去用 `type: ChargeStation` → app 的 Dart 侧写 `'ChargeStation'`、C++ 后端认 `'ChargingStation'`，**两边字符串对不上**，存盘往返会静默退化成 `NavGoal`（上游 bug，两侧的未知值 fallback 都不报错） | `nav_point.dart:52` vs `topology_map.hpp:18` |
+| **待命点靠【名字】约定（`HOME`），不是拓扑的 `type` 字段** | 想当然去用 `type: ChargeStation` → app 的 Dart 侧写 `'ChargeStation'`、C++ 后端认 `'ChargingStation'`，**两边字符串对不上**，存盘往返会静默退化成 `NavGoal`（上游 bug，两侧的未知值 fallback 都不报错） | 上游 app 仓库：`nav_point.dart` 的 `NavPointType` vs `topology_map.hpp` 的同名枚举 |
 | **app 设置页里的 `NavGoalTopic` 能被用户改** | 改了 → `/goal_pose` 和 `/goal_pose/cancel` **全断，且没有任何报错**。召唤点了没反应 | 后端的 cancel 话题是 `NavGoalTopic + "/cancel"` 拼出来的 |
 | **`gui_app_settings.json` 的 `NavToPoseStatusTopic` 必须是 `/task/nav_status`** | 用回默认的 `/navigate_to_pose/_action/status` → 机器人一到达那次导航就 `succeeded`，**「停止导航」按钮当场消失**，用户再也点不到「我倒完了」。反过来，**不起任务层只跑 Nav2 时，app 的按钮和状态会一直空白** —— 那时要改回默认值 | 见下节 |
 | **导航点名字必须唯一** | 名字是任务的唯一标识（去重、队列、日志全靠它）。重名的点会**互相覆盖，只有最后一个生效**。（名字本身随便起，人名、中文都行） | `_reload_topology()` 检测到会 error 提示 |
@@ -100,8 +100,8 @@ CORS 全放行 —— Flutter Web 是从后端的 `:8080` 加载的，打 `:8090
 
 ## 「我倒完了」按钮为什么是独立的
 
-app 原有的「停止导航」按钮（左下角）**只在导航中出现**（`main_page.dart:1021` 的可见性
-条件是 `navStatus == executing || accepted`）—— 机器人一到达，那次 `NavigateToPose`
+app 原有的「停止导航」按钮（左下角）**只在导航中出现**（上游 `main_page.dart` 里那个按钮的
+可见性条件是 `navStatus == executing || accepted`）—— 机器人一到达，那次 `NavigateToPose`
 就 `succeeded` 了，**按钮当场消失**。所以它天然按不到"跳过等待"。
 
 > 曾经试过把 `NavToPoseStatusTopic` 指到一个自造的话题上，让那个按钮在 WAITING 时

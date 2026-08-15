@@ -24,6 +24,7 @@ src/articubot_one/
 # 只有忽略「目录内的条目」才能用 ! 放行其中一个子目录。
 .claude/*
 !.claude/skills/
+!.claude/output-styles/
 
 # Editor (optional)
 .vscode/
@@ -36,3 +37,7 @@ firmware/my_robot_stm32/.settings/
 
 # 硬件雷达驱动包
 src/sllidar_ros2/
+
+# 本地自查分析目录
+.selfcheck
+.agents

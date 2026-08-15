@@ -20,6 +20,26 @@ pgrep -af "gz sim|slam_toolbox|nav2_|bt_navigator|parameter_bridge|laser_filter|
 **有输出 = 用户正开着东西 → 停下来问，不要自己起，更不要 `kill`。**
 要清理也只清自己起的那套（记 pid），**禁止 `pkill -9 -f` 无差别扫**。
 
+## 🚨 跑任何 ros2 命令之前：先 export 环境变量
+
+**每个新 Bash 调用、每次 SSH 都不读 `~/.bashrc`**，环境不会自动带过来。
+
+```bash
+export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+export ROS_DOMAIN_ID=42
+export ROS_LOCALHOST_ONLY=0
+source /opt/ros/humble/setup.bash && source ~/dev_ws/install/setup.bash
+```
+
+漏了的症状会伪装成"节点没起来"：
+
+- 少 `ROS_DOMAIN_ID` / `RMW_IMPLEMENTATION` → `ros2 topic list` 只剩 `/parameter_events` 和 `/rosout`
+- 开发机（WSL）还要 `CYCLONEDDS_URI`（绑网卡 IP + 组播 + 静态单播，定义在 `~/.bashrc`）
+  → 少了它 `ros2 topic list` 直接挂住不返回，自己起的节点之间互相发现不到
+
+排查：先看一个**已知肯定在跑**的话题（如 `/diff_cont/odom`）。看不到 = 环境问题；
+看得到但目标话题没有 = 真的没发布。
+
 ## 与我协作的约定
 
 @docs/与我协作的约定.md
@@ -54,8 +74,8 @@ source install/setup.bash                                  # 每次新终端必�
 ## 节点 / 话题架构（实机）
 
 ```
-STM32F303 ←─UART 115200─→ Stm32SerialHardware (ros2_control 插件)
-                                   │  全链路 100 Hz
+STM32F303 ←─UART─→ Stm32SerialHardware (ros2_control 插件)
+                                   │  全链路同频（robot_config.h 的 CONTROL_FREQ_HZ）
               ┌────────────────────┼────────────────────┐
               ▼                    ▼                     ▼
   DiffDriveController     IMUSensorBroadcaster   JointStateBroadcaster
@@ -66,13 +86,13 @@ STM32F303 ←─UART 115200─→ Stm32SerialHardware (ros2_control 插件)
        │                        │
        └──────────┬─────────────┘
                   ▼
-           EKF (robot_localization) @100Hz
+           EKF (robot_localization) 同频
            /odometry/filtered  +  TF odom→base_footprint
            （diff_cont 的 enable_odom_tf: false，TF 只有 EKF 发）
 
-思岚 C1 ←─USB 460800─→ sllidar_node → /scan → LaserFilter → /scan_filtered
+思岚 C1 ←─USB─→ sllidar_node → /scan → LaserFilter → /scan_filtered
 
-TwistMux: /cmd_vel_keyboard (90) + /cmd_vel_nav (70) → /diff_cont/cmd_vel_unstamped
+TwistMux: /cmd_vel_keyboard 优先于 /cmd_vel_nav → /diff_cont/cmd_vel_unstamped
 ```
 
 详见 `src/my_bot_hw/docs/话题与频率.md`。
@@ -106,6 +126,8 @@ TwistMux: /cmd_vel_keyboard (90) + /cmd_vel_nav (70) → /diff_cont/cmd_vel_unst
 - `docs/APP/` —— 上位机 GUI（ROS_Flutter_Gui_App）集成：后端接口、前端补丁、复现部署
 - `docs/workflows/实机同步与部署.md` —— 开发机 ↔ 开发板（**用 git，不要用 rsync**）、arm64 编译要求
 - `docs/architecture/`、`docs/workflows/` —— 仓库级架构与工作流
+- `docs/代码与文档规范.md` —— 注释怎么写、文档为什么不写参数值（AI 由 code-style skill 自动加载）
 
 > **动代码前先读对应包的 `docs/README.md` 的「不变量」表** —— 那里列的是"违反了就出错、
 > 但从代码里看不出来"的约束。
+> **文档里的参数值一律以源码为准** —— 不变量表只写约束关系与指针，具体数值去指到的文件里取。

@@ -25,14 +25,14 @@ nav.launch.py  ──┬── navigation_launch.py  → Nav2 全家桶
 
 违反了就出错，但从代码里看不出来。
 
-| 不变量 | 违反后的症状 | 依据 |
+| 不变量 | 违反后的症状 | 去哪看 |
 | --- | --- | --- |
 | **局部控制器只有 `rpp` 和 `neupan` 两个** | 照着网上/旧笔记调 MPPI / DWB / Smac 的参数 —— 那些插件**根本没加载** | `nav.launch.py` 的 `_include_nav()` 只会四选一 |
 | **`nav.launch.py` 已内含 keepout** | 再单独起一遍 `keepout.launch.py` → 节点重名冲突 | `nav.launch.py` 里 `IncludeLaunchDescription(keepout.launch.py)`，`keepout:=false` 可关 |
 | **地图名不能叫 `map`** | 画的禁行区被 app 的实时镜像悄悄覆盖 | 见 [多地图与禁行区.md](多地图与禁行区.md) 与 [docs/APP](../../../docs/APP/) |
 | **`keepout_filter` 必须排在 `inflation_layer` 之前** | 禁行区不被膨胀，机器人会贴着禁行区边缘走 | costmap 的 `plugins` 列表按顺序执行 |
 | **NeuPAN 的 `robot.length/width` 必须与实车一致** | 碰撞几何错 → 要么撞、要么在能过的地方停死 | `config/sim/neupan_sim.yaml` 的 `robot:` 段 |
-| **`Behavior Tree tick rate 100.00 was exceeded` 是无害警告** | 别去查故障 —— 它只说明某次 tick 超过了 `bt_loop_duration: 10`（=100Hz），CPU 争抢所致（开着 app 前端 + Gazebo + neupan 推理时常见）。导航照常成功 | `bt_loop_duration: 10` |
+| **`Behavior Tree tick rate ... was exceeded` 是无害警告** | 别去查故障 —— 它只说明某次 tick 超过了 `bt_loop_duration` 设定的周期，CPU 争抢所致（开着 app 前端 + Gazebo + neupan 推理时常见）。导航照常成功 | nav2 参数文件的 `bt_loop_duration` |
 
 ---
 

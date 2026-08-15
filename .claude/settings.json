@@ -1,4 +1,5 @@
 {
+  "outputStyle": "conclusion-first",
   "permissions": {
     "allow": [
       "Read(//dev/**)",
