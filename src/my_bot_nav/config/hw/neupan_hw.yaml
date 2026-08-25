@@ -11,7 +11,9 @@
 receding: 4            # MPC 后退时域步数。调大→看得更远、轨迹更平滑但计算量↑；调小→算得快、反应快但短视（作者列为提速可调项）
 step_time: 0.25
 ref_speed: 0.3          # 参考(期望)速度(m/s)，受 max_speed 上限约束。调大→跑更快但避障余量小；调小→更稳更慢
-collision_threshold: -1  # 碰撞检测阈值(m)：最近障碍距离低于它即触发停车。调大→更早急停更安全、窄处易停死；调小→敢靠近但撞险↑
+collision_threshold: 0.01  # 碰撞检测阈值(m)：最近障碍距离低于它即触发硬急停(零速)。调大→更早急停更安全、窄处易停死；调小→敢靠近但撞险↑
+                           # 必须 > 0：负值/0 会被 NeuPANPlanner::validate() 拒绝，加载即抛异常（停车条件退化为"外形已重叠"，不可恢复）
+                           # 关掉 backoff 后这是 controller 层唯一的急停判据；真正的避障余量在 adjust.d_min/d_max 与 costmap 的 inflation_radius
 device: 'cpu'           # 【neupan_cpp 未读取】C++ 版无 PyTorch，改之无效
 time_print: False       # 【neupan_cpp 未读取】仅上游 Python 版用于打印规划耗时，改之无效
 
@@ -19,13 +21,16 @@ robot:
   kinematics: 'diff'    # 运动学模型；neupan_cpp 仅支持 'diff'
   max_speed: [0.3, 3.14]   # [线速度, 角速度] 上限，约束实际输出。调大→机动性强但更险；调小→更稳
   max_acce: [1.0, 0.2]
-  # 2026-08 底盘重做：车体为以 (-0.047, 0) 为心、r=0.11 的圆，外接矩形 0.22 x 0.22。
-  # ⚠️ 已确认（robot.cpp:87 diffRectangle）：顶点为 sx = -(length - wheelbase)/2，
-  #    配置未设 wheelbase 故取 0 —— 矩形以 base_link 居中，无法表达上述 47mm 后偏。
-  #    后果：后方少算 47mm、前方多算 47mm。叠加 DUNE 模型仍按旧的 0.18/0.22 训成，
-  #    重训完成前实机导航只走 RPP（见 docs/spec/2026-08-11-实机几何改动同步.md D2）。
-  length: 0.22          # 机器人几何长度(m)，碰撞几何用（前 0.063 + 后 0.157），旧值 0.18
-  width: 0.22           # 机器人几何宽度(m)，碰撞几何用（左右 ±0.11），与旧值相同
+  # 车体是以 base_link 后方 47mm 为心的 ⌀0.22 圆盘，外接矩形不以 base_link 居中。
+  # robot.cpp 的 Robot::diffRectangle 取顶点 sx = -(length - wheelbase)/2，而 diff 运动学
+  # 并不消费轴距，所以这里拿 wheelbase 当 x 向偏置用，把矩形挪到实际外廓的位置。
+  # ⚠️ 三个值必须与训出 dune_checkpoint 的那份训练 yaml 逐位相同，也必须与 hw/sim 的另一份
+  #    逐位相同（同一台实体机器人）。不一致不报错，只会让 DUNE 学的边界与 NRMP 约束的边界
+  #    错位 —— 症状是没碰到却停车、或贴着障碍不减速。三个值的算法见 docs/neupan.md
+  #    「DUNE 模型重训」的「踩过的坑」第 1 条。
+  length: 0.22          # 前伸 + 后伸
+  width: 0.22           # 侧伸 ×2
+  wheelbase: -0.094     # 前伸 − 后伸；负值 = 车体相对 base_link 后偏
 
 ipath:
   curve_style: 'line'   # 参考路径插值方式；neupan_cpp 仅支持 'line'（Python 版另支持 dubins/reeds）
@@ -50,8 +55,14 @@ adjust:                 # ← 作者：调参主要在本段
   ro_obs: 400.0         # 避障约束违反的二次罚权重（J += 0.5·ro_obs·neg²）。调大→强惩闯障更安全；作者：值越小→可能需更多迭代才收敛
   bk: 0.0               # proximal 正则系数（J += 0.5·bk·(s−nom_s)²），拉近名义轨迹助收敛。调大→更稳定但探索性差；调小/0→无此正则
 
+# 退避(retreat-on-stop)：fork 独有、默认关闭。
+# 关闭理由：与 Nav2 BT 恢复链的 BackUp / Spin 职责重叠（见 my_bot_nav 的
+# config/common/bt/navigate_to_pose_custom.xml 的 NavigateRecovery），且 controller 层自己后退会持续发非零速度，
+# 给 general_goal_checker 的 movement_time_allowance 与 my_bot_task 的 task_params.yaml 的
+# nav_watchdog（min_progress_m / stuck_timeout_sec）"充电"，把按实测日志算过的恢复预算悄悄改写掉。
+# 下面三个值原样保留，要复活只需把 enabled 改回 true。
 backoff:
-  enabled: true
+  enabled: false
   release_distance: 0.15   # 退避目标：min_distance(离障碍距离) 退到 ≥ 此值才算"退够了"、恢复正常前进；没到之前每帧都会继续退/转。调大→要求退得更远更保守，但更难达标；调小→更快恢复前进，但可能没退开就又贴上去
   max_cycles: 80          # 退避最多尝试帧数：退满这么多帧还没达到 release_distance 就放弃，原地硬停，把问题交给 Nav2（重规划/恢复动作），不会无限退下去。调大→给退避更多机会退够；调小→更快放弃、更快交给外层处理
   turn_speed: 1.2         # 障碍在侧面（非正前/正后）时原地转开的角速度(rad/s)：差速车没有横移自由度，纯前后退对侧向障碍距离改变很小，改为转向躲开
