@@ -14,7 +14,7 @@ ros2 run rqt_reconfigure rqt_reconfigure
 # 键盘控制 - 设目标速度
 ros2 run teleop_twist_keyboard teleop_twist_keyboard \
   --ros-args -r cmd_vel:=/cmd_vel_keyboard \
-  -p speed:=0.25 -p turn:=0.8
+  -p speed:=0.3 -p turn:=1.2
 
 # 1 启动gazebo
 ros2 launch my_bot launch_sim.launch.py
@@ -96,3 +96,9 @@ ros2 run my_bot_task baseline_metrics.py --ros-args \
 # task 模式 —— 起了 task.launch.py 时
 ros2 run my_bot_task baseline_metrics.py --ros-args \
   -p use_sim_time:=true -p repeat:=3
+
+
+# topic list 不吐字，先跑这一条区分
+ros2 topic list --no-daemon    # 秒回 = daemon 没起来，不是 DDS 配错
+ros2 daemon start              # 幂等，0.2~0.4 s，安全
+ros2 daemon stop
