@@ -22,27 +22,40 @@
  * 默认预设
  * ════════════════════════════════════════════════════════════════════════
  * 阈值思路：
- *   gyro_mean_thresh = 0.01 rad/s ≈ 0.57°/s
- *     —— 若机器人有意慢速旋转（< 0.5°/s），需调小此值，否则会被误判为静止
- *   gyro_var_thresh  = (0.005 rad/s)² = 2.5e-5
- *     —— ICM-42688-P @ 100 Hz 噪声底约 0.0003 rad/s，留足 ~16× 余量
- *        实测时把静止/运动的方差打 log，按实际噪声底再调
- *   accel_var_thresh = 0.5 (m/s²)²
- *     —— 重力 9.8 m/s² 的 ~3% 振幅，地面机器人电机怠速通常远低于此
+ *   gyro_mean_thresh —— 判的是窗口均值减掉当前零偏后的偏离量。
+ *     机器人有意慢速旋转时这个偏离量就是转速本身，所以它必须小于最慢的有意转向
+ *   gyro_var_thresh —— 固件内实测静止时三轴方差都在 1e-7 量级，本阈值余量约 200×。
+ *     ⚠️ 别拿 ROS 侧 /imu_broad/imu 算出来的方差定这个值：串口传帧的抖动会把它
+ *        抬高约 100 倍，照那个数调会误以为没余量。要看就挂 CubeIDE Live Expressions
+ *        直接读 g_zupt.gyro_var。
+ *   accel_var_thresh —— 见下方结构体上的实测说明，它在本机上没有鉴别力
  *
  *   退出阈值取入场阈值的 ~5×，防止在临界点反复跳变
  *
- *   bias_alpha：在 STATIC 状态下每帧融合一次。alpha=0.02 时
- *     时间常数 ≈ 50 帧 = 0.5 s @ 100 Hz，与窗口同量级，足够追温漂
+ *   bias_alpha：在 STATIC 状态下每帧融合一次。它作用的对象是窗口均值，
+ *     所以实际链路是 EWMA(τ≈1/alpha 帧) 串联 MA(ZUPT_WINDOW_SIZE)，
+ *     等效时间常数约为两者之和，而不是只有 EWMA 那一项
  */
 const zupt_config_t ZUPT_CFG_100HZ_DEFAULT = {
-    .gyro_mean_thresh  = 0.01f,
+    /* 0.115°/s。下界由标定后的残余漂移定（实测约 0.012°/s，见 docs/spec/ 那张
+     * IMU yaw 稳定性卡），留了约 10× 余量；上界由"必须能否决匀速慢转"定 ——
+     * 验收 A8 拿 0.3°/s 试，必须显著小于它。
+     * ⚠️ 这里比的是减完零偏的偏离量，不是原始均值 —— 器件原始零偏实测已有 0.3°/s。 */
+    .gyro_mean_thresh  = 2.0e-3f,
     .gyro_var_thresh   = 2.5e-5f,
-    .accel_var_thresh  = 0.5f,
+    /* 实测（固件内读 accel_var_sum）：电机通电静止 0.00055 / 直线行驶 0.00053 ——
+     * 两者一模一样。这条判据在本机上区分不了"行驶 vs 静止"，只能用来挡撞击、
+     * 被搬动这类大扰动。别再拿它当"行驶时不会误判静止"的依据。 */
+    .accel_var_thresh  = 0.1f,
     .gyro_exit_thresh  = 0.05f,
     .accel_exit_thresh = 2.5f,
-    .settle_samples    = 25u,    /* 0.25 s @ 100 Hz */
+    /* 500 帧 = 5 s @ 100 Hz。连续 10 个滑窗都安静才认，用来排除运动中的短暂平静期
+     * （转向前的停顿、避障刹停）。⚠️ 它对匀速慢转无效 —— 那种情形方差本来就低，
+     * 拦它的是 gyro_mean_thresh，不是这个。 */
+    .settle_samples    = 500u,
     .bias_alpha        = 0.02f,
+    /* 2.9°/s。零偏再怎么温漂也到不了这个量级，超了就说明估计已经跑飞。 */
+    .bias_clip         = 0.05f,
 };
 
 /* ════════════════════════════════════════════════════════════════════════
@@ -122,12 +135,21 @@ static bool is_window_static(const zupt_t *z)
     return true;
 }
 
-/* 宽松判据：STATIC 期间，一旦瞬时陀螺或加速度方差超过退出阈值就翻 MOVING */
+/* 宽松判据：STATIC 期间，一旦瞬时陀螺或加速度方差超过退出阈值就翻 MOVING。
+ * accel 那条用的是窗口方差，滞后一整个窗口，实际退出速度由陀螺那条瞬时判据决定；
+ * 别指望调 accel_exit_thresh 能让退出变快。 */
 static bool should_exit_static(const zupt_t *z, const float gyro_raw[3])
 {
     for (uint32_t i = 0u; i < 3u; i++) {
         const float g = gyro_raw[i] - z->gyro_bias[i];
         if (fabsf(g) > z->cfg.gyro_exit_thresh) {
+            return true;
+        }
+        /* 窗口均值的偏离量也要在这里查一遍。状态机进了 ZUPT_STATIC 之后就不再调
+         * is_window_static()，只走本函数；少了这条，"先停住、再开始匀速慢转"
+         * 的序列里 0.3°/s 远低于 gyro_exit_thresh，不触发退出，会被 EWMA
+         * 一路吸收成零偏 —— 那是 F8 自锁的另一半入口。 */
+        if (fabsf(z->gyro_mean[i] - z->gyro_bias[i]) > z->cfg.gyro_mean_thresh) {
             return true;
         }
     }
@@ -222,10 +244,14 @@ void zupt_update(zupt_t *z, const float gyro_raw[3], const float accel[3])
             } else {
                 /* 一阶低通：bias ← (1−α)·bias + α·窗口均值
                  * 窗口均值在静止时即等于真实零偏（含温漂） */
-                const float a = z->cfg.bias_alpha;
-                z->gyro_bias[0] = (1.0f - a) * z->gyro_bias[0] + a * z->gyro_mean[0];
-                z->gyro_bias[1] = (1.0f - a) * z->gyro_bias[1] + a * z->gyro_mean[1];
-                z->gyro_bias[2] = (1.0f - a) * z->gyro_bias[2] + a * z->gyro_mean[2];
+                const float a    = z->cfg.bias_alpha;
+                const float clip = z->cfg.bias_clip;
+                for (uint32_t i = 0u; i < 3u; i++) {
+                    float b = (1.0f - a) * z->gyro_bias[i] + a * z->gyro_mean[i];
+                    if (b >  clip) { b =  clip; }
+                    if (b < -clip) { b = -clip; }
+                    z->gyro_bias[i] = b;
+                }
             }
             break;
 

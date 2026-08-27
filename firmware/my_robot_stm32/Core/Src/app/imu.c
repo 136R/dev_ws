@@ -23,6 +23,7 @@
 
 #include "app/imu.h"
 #include "app/fusion/FusionAhrs.h"
+#include "app/zupt.h"
 #include "spi.h"
 #include "main.h"   /* IMU_CS_Pin, IMU_CS_GPIO_Port, IMU_INT1_Pin */
 #include <stdbool.h>
@@ -47,9 +48,20 @@
 
 #define ICM_WHO_AM_I_VAL        0x47u
 
-/* ── SF 修正 ── */
-#define GYRO_Z_SF_POS    1.0f   /* 正向修正系数*/
-#define GYRO_Z_SF_NEG    1.0f   /* 负向修正系数*/
+/* ── 陀螺 Z 轴标度修正 ──
+ * 保持 1.0。台架实测正反各 5 圈的正负标度不对称可被零偏完全解释，无剩余不对称，
+ * 正负分离没有依据；且它原本要补的 ODR 标度误差现在由 DWT 实测 dt 直接消掉了。 */
+#define GYRO_Z_SF_POS    1.0f
+#define GYRO_Z_SF_NEG    1.0f
+
+/* ── 陀螺 Z 轴滞回死区（作用于 ZUPT 输出，即已减零偏的值）─────────────
+ * 取值空隙：实测零偏地板与器件噪声底都在 0.01~0.02 °/s 量级，而机器人有意转向
+ * 最慢也有几 °/s（下界见 nav2_params 的 min rotation vel）—— 中间隔着两个数量级。
+ * 这里取 0.05 °/s，高于零偏、远低于任何真实转向。
+ * ⚠️ 它只是第三道防线：一旦行驶时零偏被振动混叠抬到阈值以上，这个死区根本不触发，
+ *    真正兜底的是 ZUPT 的在线零偏跟踪和 AAF 带宽配置。 */
+#define GZ_DB_ENTER  8.7e-4f   /* rad/s，= 0.05 °/s */
+#define GZ_DB_EXIT   1.7e-3f   /* rad/s，= 0.10 °/s，滞回 */
 
 /* ── 量程 & 转换系数 ────────────────────────────────────────────────── */
 /* 陀螺 ±500 dps → 灵敏度 65.5 LSB/(°/s) */
@@ -60,29 +72,42 @@
 #define TEMP_SENS    132.48f
 #define TEMP_OFFSET  25.0f
 
-/* ── 陀螺 Z 轴滞回死区（yaw 轴，偏置补偿后）───────────────────────── */
-/* 进入死区阈值：静止时实测噪声峰值约 0.008 rad/s，取 1.25× 余量       */
-/* 退出死区阈值：进入阈值的 2.5×，防止边界处反复抖动                   */
-/* 调参方法：打印 g_gyro[2]，取静止时绝对值最大值 × 1.25 → DB_ENTER    */
-#define GYRO_Z_DB_ENTER  0.01f   /* rad/s，进入零区 */
-#define GYRO_Z_DB_EXIT   0.015f   /* rad/s，退出零区 */
+/* ── 帧间隔实测（DWT CYCCNT）────────────────────────────────────────
+ * ICM 的 ODR 由它内部的 RC 振荡器决定，和 TIM6 的晶振基准不是同一个时钟源。
+ * 硬编码 dt = 1/ODR 会把两者的频差原样变成 yaw 的标度误差。
+ * dt 取连续两次读取时刻之差：累加时望远镜式抵消，N 帧总时长精确等于墙钟时长，
+ * 单帧相位抖动是零均值误差，不累积 —— 所以不需要 FIFO，也不必在 EXTI 里读 SPI。
+ * 选 DWT 不选新开定时器：TIM1/2/4/6 已占满，新开要动 .ioc 重新生成代码。 */
+#define IMU_DT_NOMINAL_S            0.01f   /* g_dwt_ok 为假 / dt 越界时的兜底值 */
+#define IMU_DT_MIN_S                0.002f
+#define IMU_DT_MAX_S                0.050f
 
-/* ── Fusion AHRS（上层 100 Hz 调用周期）────────────────────────────── */
-/* dt 使用固定常数 = 1/ODR，不依赖 HAL_GetTick() 的 1 ms 分辨率抖动 */
-#define IMU_FUSION_DT_S             0.01f   /* 100 Hz → 10 ms */
-#define IMU_FUSION_GAIN             0.01f
+/* ── Fusion AHRS ─────────────────────────────────────────────────────── */
+#define IMU_FUSION_GAIN             0.3f
 #define IMU_FUSION_ACCEL_REJECT_DEG 10.0f
 #define IMU_FUSION_RECOVERY_TICKS   200u
 
 /* ── 陀螺偏置标定 ───────────────────────────────────────────────────── */
-#define CAL_NUM_SAMPLES  1000u   /* 5 s @ 100 Hz，机器人必须静止 */
+/* 200 点即 2 s @ ODR 100 Hz（ODR 见 imu_init 写 GYRO_CONFIG0 的值）。
+ * 缩短不损精度：ZUPT 的 STATIC 段会以 ZUPT_CFG_100HZ_DEFAULT.bias_alpha
+ * 持续跟踪温漂，静态标定只负责给它一个起点。 */
+#define CAL_NUM_SAMPLES     200u
+#define CAL_MAX_ATTEMPTS    3u
+/* 总超时，覆盖全部重试。超了就放弃标定并正常返回 —— 死等 g_ready 时 TIM6 还没启动，
+ * IMU 挂掉会连电机和串口一起卡死。 */
+#define CAL_TIMEOUT_MS      10000u
+#define CAL_ACCEL_NORM_TOL  0.5f   /* m/s²，|‖a‖ − g| 上限，用来发现标定期间被搬动 */
 
 /* ── 内部状态 ───────────────────────────────────────────────────────── */
 static imu_data_t g_imu;
 static volatile bool g_ready = false;
 static float g_gyro_bias[3] = {0.0f, 0.0f, 0.0f};
 static FusionAhrs g_ahrs;
-static bool g_gyro_z_in_deadzone = true;   /* 滞回死区状态：开机默认在零区内 */
+static bool g_gz_in_deadzone = true;   /* 开机默认在零区内 */
+static uint32_t g_cyc_prev     = 0u;
+static bool     g_dt_have_prev = false;
+static float    g_cyc_to_s     = 0.0f;
+zupt_t g_zupt;
 
 /* ── 调试全局变量（Live Expressions / 示波器用）────────────────────── */
 volatile float    g_acc[3]              = {0.0f, 0.0f, 0.0f};
@@ -93,6 +118,25 @@ volatile float    g_yaw = 0.0f;
 volatile float    yaw_gyro_accum_deg = 0.0f;     /* 原始imu累计 */
 volatile uint32_t g_imu_packet_count    = 0u;
 volatile uint32_t g_imu_parse_error_count = 0u;
+volatile uint32_t g_imu_health          = 0u;
+volatile float    g_imu_dt_s            = IMU_DT_NOMINAL_S;
+volatile bool     g_dwt_ok              = false;
+volatile uint32_t g_dt_clamp_count      = 0u;
+volatile uint32_t g_isr_max_us          = 0u;
+
+/* DWT 是 Cortex-M4 内核自带的周期计数器，不占外设、不需要 CubeMX 改动。
+ * 无调试器连接时它是否走字属于实测项，故这里自检一次并留 g_dwt_ok 兜底。 */
+static void dwt_init(void)
+{
+    CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+    DWT->CYCCNT = 0u;
+    DWT->CTRL  |= DWT_CTRL_CYCCNTENA_Msk;
+
+    const uint32_t t0 = DWT->CYCCNT;
+    for (volatile uint32_t i = 0u; i < 100u; i++) { }
+    g_dwt_ok   = (DWT->CYCCNT != t0);
+    g_cyc_to_s = 1.0f / (float)SystemCoreClock;
+}
 
 /* ── SPI 底层：单寄存器读 ───────────────────────────────────────────── */
 static uint8_t icm_read_reg(uint8_t reg)
@@ -133,6 +177,25 @@ static void icm_burst_read_sensors(uint8_t *buf14)
 /* ── 内部：读取并换算所有传感器数据 ────────────────────────────────── */
 static void icm_read_all(void)
 {
+    /* CYCCNT 是 32 位、@SYSCLK 约 60 s 回绕；无符号相减在回绕处依然给出正确差值 */
+    const uint32_t cyc_entry = DWT->CYCCNT;
+    float dt = IMU_DT_NOMINAL_S;
+    if (g_dwt_ok) {
+        if (g_dt_have_prev) {
+            const float dt_meas = (float)(cyc_entry - g_cyc_prev) * g_cyc_to_s;
+            if ((dt_meas >= IMU_DT_MIN_S) && (dt_meas <= IMU_DT_MAX_S)) {
+                dt = dt_meas;
+            } else {
+                g_dt_clamp_count++;
+            }
+        } else {
+            g_dt_have_prev = true;
+            g_dt_clamp_count++;   /* 首帧没有前值，这一次计数是预期内的 */
+        }
+        g_cyc_prev = cyc_entry;
+    }
+    g_imu_dt_s = dt;
+
     uint8_t raw[14];
     icm_burst_read_sensors(raw);
 
@@ -152,39 +215,35 @@ static void icm_read_all(void)
     int16_t gx = (int16_t)(((uint16_t)raw[8]  << 8u) | raw[9]);
     int16_t gy = (int16_t)(((uint16_t)raw[10] << 8u) | raw[11]);
     int16_t gz = (int16_t)(((uint16_t)raw[12] << 8u) | raw[13]);
-    g_imu.gyro[0] = (float)gx * GYRO_SCALE - g_gyro_bias[0];
-    g_imu.gyro[1] = (float)gy * GYRO_SCALE - g_gyro_bias[1];
-//    g_imu.gyro[2] = (float)gz * GYRO_SCALE - g_gyro_bias[2];
+    /* zupt_update() 要的是「未减零偏」的原始值 —— 零偏由它自己在 STATIC 段在线跟踪，
+     * 这里先减一遍会让它的窗口均值判据失去意义。见 zupt.h 的调用约定。 */
+    const float gyro_raw[3] = {
+        (float)gx * GYRO_SCALE,
+        (float)gy * GYRO_SCALE,
+        (float)gz * GYRO_SCALE,
+    };
+    zupt_update(&g_zupt, gyro_raw, g_imu.accel);
+    zupt_apply(&g_zupt, gyro_raw, g_imu.gyro);
 
-    float gz_unbiased = (float)gz * GYRO_SCALE - g_gyro_bias[2];
+    const float sf_z = (g_imu.gyro[2] >= 0.0f) ? GYRO_Z_SF_POS : GYRO_Z_SF_NEG;
+    g_imu.gyro[2] *= sf_z;
 
-    /* 正负分开做 SF 修正 */
-    float sf_z = (gz_unbiased >= 0.0f) ? GYRO_Z_SF_POS : GYRO_Z_SF_NEG;
-    g_imu.gyro[2] = gz_unbiased * sf_z;
-
-    /* 单独累计yaw 无归一化 */
-    yaw_gyro_accum_deg += g_imu.gyro[2] * IMU_FUSION_DT_S * 180.0f / M_PI;
-
-    /* 陀螺 Z 轴滞回死区：抑制 yaw 噪声积分
-     *   在死区内：|gz| > DB_EXIT → 退出死区，输出真实值
-     *   在死区外：|gz| < DB_ENTER → 进入死区，输出 0
-     * X/Y 轴保持原值（roll/pitch 由 AHRS 加速度计修正，无需死区） */
-    if (g_gyro_z_in_deadzone) {
-        if (fabsf(g_imu.gyro[2]) > GYRO_Z_DB_EXIT) {
-            g_gyro_z_in_deadzone = false;
+    /* 只动 z：roll/pitch 由 AHRS 用加速度计持续修正，不会像 yaw 那样纯积分发散 */
+    if (g_gz_in_deadzone) {
+        if (fabsf(g_imu.gyro[2]) > GZ_DB_EXIT) {
+            g_gz_in_deadzone = false;
         } else {
-        	g_imu.gyro[0] = 0.0f;
-        	g_imu.gyro[1] = 0.0f;
             g_imu.gyro[2] = 0.0f;
         }
-    } else {
-        if (fabsf(g_imu.gyro[2]) < GYRO_Z_DB_ENTER) {
-            g_gyro_z_in_deadzone = true;
-            g_imu.gyro[0] = 0.0f;
-            g_imu.gyro[1] = 0.0f;
-            g_imu.gyro[2] = 0.0f;
-        }
+    } else if (fabsf(g_imu.gyro[2]) < GZ_DB_ENTER) {
+        g_gz_in_deadzone = true;
+        g_imu.gyro[2] = 0.0f;
     }
+
+    /* 裸积分探针：取 ZUPT 门控之前的值。台架基线与验收 A2 都以它为准，
+     * 一旦改成门控之后的值，历史基线就不可比了。 */
+    yaw_gyro_accum_deg += (gyro_raw[2] - g_zupt.gyro_bias[2])
+                          * dt * 180.0f / (float)M_PI;
 
     /* 6 轴无磁力计 */
     g_imu.mag[0]  = 0.0f;  g_imu.mag[1]  = 0.0f;  g_imu.mag[2]  = 0.0f;
@@ -201,7 +260,7 @@ static void icm_read_all(void)
     }};
 
 
-    FusionAhrsUpdateNoMagnetometer(&g_ahrs, gyroscope, accelerometer, IMU_FUSION_DT_S);
+    FusionAhrsUpdateNoMagnetometer(&g_ahrs, gyroscope, accelerometer, dt);
 
     const FusionQuaternion quaternion = FusionAhrsGetQuaternion(&g_ahrs);
     const FusionEuler euler = FusionQuaternionToEuler(quaternion);
@@ -221,22 +280,40 @@ static void icm_read_all(void)
     g_gyro[0] = g_imu.gyro[0];
     g_gyro[1] = g_imu.gyro[1];
     g_gyro[2] = g_imu.gyro[2];
+    g_gyro_bias_rad_s[0] = g_zupt.gyro_bias[0];
+    g_gyro_bias_rad_s[1] = g_zupt.gyro_bias[1];
+    g_gyro_bias_rad_s[2] = g_zupt.gyro_bias[2];
 
     g_yaw = g_imu.yaw;
 
     g_imu_packet_count++;
+
+    /* 白拿的 ISR 耗时探针（同一个计数器）：ZUPT 的滑窗统计在 -O0 下是否吃爆 10 ms 预算 */
+    if (g_dwt_ok) {
+        const uint32_t us = (uint32_t)((float)(DWT->CYCCNT - cyc_entry) * g_cyc_to_s * 1.0e6f);
+        if (us > g_isr_max_us) {
+            g_isr_max_us = us;
+        }
+    }
 }
 
 /* ── 公共 API ────────────────────────────────────────────────────────── */
 
 void imu_init(void)
 {
+    dwt_init();
     memset(&g_imu, 0, sizeof(g_imu));
     g_imu.quat[0] = 1.0f;
     g_ready = false;
     g_gyro_bias[0] = 0.0f;  g_gyro_bias[1] = 0.0f;  g_gyro_bias[2] = 0.0f;
     g_imu_packet_count      = 0u;
     g_imu_parse_error_count = 0u;
+    g_imu_health            = 0u;
+    g_dt_clamp_count        = 0u;
+    g_isr_max_us            = 0u;
+    g_dt_have_prev          = false;
+
+    zupt_init(&g_zupt, &ZUPT_CFG_100HZ_DEFAULT);
 
     FusionAhrsInitialise(&g_ahrs);
     FusionAhrsSettings settings = {
@@ -259,6 +336,7 @@ void imu_init(void)
     /* 验证 WHO_AM_I（期望 0x47） */
     if (icm_read_reg(ICM_REG_WHO_AM_I) != ICM_WHO_AM_I_VAL) {
         g_imu_parse_error_count++;
+        g_imu_health |= IMU_HEALTH_WHOAMI_BAD;
         /* 不 hang，继续初始化；调试时在此加断点检查 SPI 接线 */
     }
 
@@ -270,6 +348,29 @@ void imu_init(void)
     /* 加速：±4 g，ODR 100 Hz
      * ACCEL_CONFIG0 [7:5]=010(±4g)  [3:0]=1000(100Hz) */
     icm_write_reg(ICM_REG_ACCEL_CONFIG0, 0x48u);
+
+    /* AAF（模拟抗混叠滤波）的复位带宽是陀螺 585 Hz / 加速 1220 Hz，远高于 ODR 100 Hz 的
+     * Nyquist 50 Hz —— 电机振动里落在 100 Hz 整数倍附近的能量会折叠到 DC，表现为随
+     * 转速变化的陀螺零偏。DELT=1 / DELTSQR=1 / BITSHIFT=15（手册 §5.2 表）是唯一压在
+     * 50 Hz 以下的档位，42 Hz。
+     * 这 6 个寄存器的 Reserved 位复位值全为 0，所以整字节写安全，不必 read-modify-write。 */
+    static const uint8_t aaf_regs[6][3] = {   /* {bank, reg, value} */
+        {1u, 0x0Cu, 0x01u}, {1u, 0x0Du, 0x01u}, {1u, 0x0Eu, 0xF0u},
+        {2u, 0x03u, 0x02u}, {2u, 0x04u, 0x01u}, {2u, 0x05u, 0xF0u},
+    };
+    for (uint32_t i = 0u; i < 6u; i++) {
+        icm_write_reg(ICM_REG_BANK_SEL, aaf_regs[i][0]);
+        icm_write_reg(aaf_regs[i][1], aaf_regs[i][2]);
+    }
+    for (uint32_t i = 0u; i < 6u; i++) {
+        icm_write_reg(ICM_REG_BANK_SEL, aaf_regs[i][0]);
+        if (icm_read_reg(aaf_regs[i][1]) != aaf_regs[i][2]) {
+            g_imu_parse_error_count++;
+            g_imu_health |= IMU_HEALTH_AAF_BAD;
+        }
+    }
+    /* 必须切回 Bank0：后面所有寄存器操作和 icm_burst_read_sensors() 都按 Bank0 地址走 */
+    icm_write_reg(ICM_REG_BANK_SEL, 0x00u);
 
     /* 上电：陀螺 + 加速均进入 Low-Noise 模式
      * PWR_MGMT0 [3:2]=11(GYRO LN)  [1:0]=11(ACCEL LN) */
@@ -314,42 +415,106 @@ void imu_peek_data(imu_data_t *out)
     if (out) { *out = g_imu; }
 }
 
-void imu_calibrate_gyro_bias(void)
+typedef enum {
+    CAL_OK = 0,
+    CAL_UNSTABLE,   /* 方差或重力模长超标：多半是被碰了，值得重试 */
+    CAL_TIMEOUT,    /* 等不到 DRDY：重试也没用，直接放弃 */
+} cal_result_t;
+
+/* 采一窗静止数据并校验。deadline_ms 是 HAL_GetTick() 口径的绝对截止时刻。 */
+static cal_result_t cal_collect(float bias_out[3], uint32_t deadline_ms)
 {
-    float sum[3] = {0.0f, 0.0f, 0.0f};
+    float sum[3]     = {0.0f, 0.0f, 0.0f};
+    float sumsq[3]   = {0.0f, 0.0f, 0.0f};
+    float acc_sum[3] = {0.0f, 0.0f, 0.0f};
     uint32_t count = 0u;
     uint8_t raw[14];
-    int16_t gx, gy, gz;
-
-    g_gyro_bias[0] = 0.0f;  g_gyro_bias[1] = 0.0f;  g_gyro_bias[2] = 0.0f;
 
     while (count < CAL_NUM_SAMPLES) {
-        if (g_ready) {
-            /* 直接读原始传感器数据，不经过 icm_read_all()，
-             * 避免把带偏置的陀螺数据喂进 AHRS 滤波器 */
-            icm_burst_read_sensors(raw);
+        /* 无符号差再转有符号，HAL_GetTick() 回绕时判定依然正确 */
+        if ((int32_t)(HAL_GetTick() - deadline_ms) >= 0) {
+            return CAL_TIMEOUT;
+        }
+        if (!g_ready) {
+            continue;
+        }
 
-            gx = (int16_t)(((uint16_t)raw[8]  << 8u) | raw[9]);
-            gy = (int16_t)(((uint16_t)raw[10] << 8u) | raw[11]);
-            gz = (int16_t)(((uint16_t)raw[12] << 8u) | raw[13]);
-            sum[0] += (float)gx * GYRO_SCALE;
-            sum[1] += (float)gy * GYRO_SCALE;
-            sum[2] += (float)gz * GYRO_SCALE;
+        /* 直接读原始传感器数据，不经过 icm_read_all()，
+         * 避免把带偏置的陀螺数据喂进 AHRS 滤波器 */
+        icm_burst_read_sensors(raw);
+        g_ready = false;
 
-            g_ready = false;
-            count++;
+        const float g[3] = {
+            (float)(int16_t)(((uint16_t)raw[8]  << 8u) | raw[9])  * GYRO_SCALE,
+            (float)(int16_t)(((uint16_t)raw[10] << 8u) | raw[11]) * GYRO_SCALE,
+            (float)(int16_t)(((uint16_t)raw[12] << 8u) | raw[13]) * GYRO_SCALE,
+        };
+        const float a[3] = {
+            (float)(int16_t)(((uint16_t)raw[2] << 8u) | raw[3]) * ACCEL_SCALE,
+            (float)(int16_t)(((uint16_t)raw[4] << 8u) | raw[5]) * ACCEL_SCALE,
+            (float)(int16_t)(((uint16_t)raw[6] << 8u) | raw[7]) * ACCEL_SCALE,
+        };
+        for (uint32_t i = 0u; i < 3u; i++) {
+            sum[i]     += g[i];
+            sumsq[i]   += g[i] * g[i];
+            acc_sum[i] += a[i];
+        }
+        count++;
+    }
+
+    const float inv_n = 1.0f / (float)CAL_NUM_SAMPLES;
+    for (uint32_t i = 0u; i < 3u; i++) {
+        bias_out[i] = sum[i] * inv_n;
+        /* 阈值沿用 ZUPT 的静止判据，避免"标定认为静止、ZUPT 认为在动"这种自相矛盾 */
+        const float var = sumsq[i] * inv_n - bias_out[i] * bias_out[i];
+        if (var > ZUPT_CFG_100HZ_DEFAULT.gyro_var_thresh) {
+            return CAL_UNSTABLE;
         }
     }
 
-    g_gyro_bias[0] = sum[0] / (float)CAL_NUM_SAMPLES;
-    g_gyro_bias[1] = sum[1] / (float)CAL_NUM_SAMPLES;
-    g_gyro_bias[2] = sum[2] / (float)CAL_NUM_SAMPLES;
+    const float an = sqrtf(acc_sum[0] * acc_sum[0] +
+                           acc_sum[1] * acc_sum[1] +
+                           acc_sum[2] * acc_sum[2]) * inv_n;
+    if (fabsf(an - 9.80665f) > CAL_ACCEL_NORM_TOL) {
+        return CAL_UNSTABLE;
+    }
+    return CAL_OK;
+}
+
+void imu_calibrate_gyro_bias(void)
+{
+    const uint32_t deadline = HAL_GetTick() + CAL_TIMEOUT_MS;
+    float bias[3] = {0.0f, 0.0f, 0.0f};
+    cal_result_t res = CAL_UNSTABLE;
+
+    for (uint32_t attempt = 0u; attempt < CAL_MAX_ATTEMPTS; attempt++) {
+        res = cal_collect(bias, deadline);
+        if (res != CAL_UNSTABLE) {
+            break;
+        }
+    }
+
+    if (res != CAL_OK) {
+        bias[0] = 0.0f;  bias[1] = 0.0f;  bias[2] = 0.0f;
+        g_imu_health |= (res == CAL_TIMEOUT) ? IMU_HEALTH_CAL_TIMEOUT
+                                             : IMU_HEALTH_CAL_UNSTABLE;
+    }
+
+    g_gyro_bias[0] = bias[0];
+    g_gyro_bias[1] = bias[1];
+    g_gyro_bias[2] = bias[2];
+
+    g_gz_in_deadzone = true;
+    zupt_init(&g_zupt, &ZUPT_CFG_100HZ_DEFAULT);
+    zupt_set_bias(&g_zupt, g_gyro_bias);
+    /* 标定成功就跳过 bootstrap，别让窗口均值自吸附覆盖刚测好的零偏；
+     * 标定失败时反过来，让 bootstrap 兜底把零偏捡回来。 */
+    g_zupt.bootstrapped = (res == CAL_OK);
 
     g_gyro_bias_rad_s[0] = g_gyro_bias[0];
     g_gyro_bias_rad_s[1] = g_gyro_bias[1];
     g_gyro_bias_rad_s[2] = g_gyro_bias[2];
 
-    g_gyro_z_in_deadzone = true;
     FusionAhrsRestart(&g_ahrs);
     g_yaw = 0.0f;
 }

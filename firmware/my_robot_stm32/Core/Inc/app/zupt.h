@@ -52,6 +52,9 @@ typedef enum {
 
 typedef struct {
     /* ── 静止判据（严格阈值，进入 STATIC 必须全部满足）────────────── */
+    /* ⚠️ 必须判"减掉零偏之后"的偏离量。器件原始零偏与要否决的慢转同量级
+     * （实测 z 轴零偏 0.31°/s，A8 要否决的慢转 0.3°/s），拿未减零偏的
+     * 原始均值做绝对上界在数学上无解：慢转与零偏反向时偏离量反而更小。 */
     float gyro_mean_thresh;   /* rad/s，|窗口均值 − 当前零偏| 上限      */
     float gyro_var_thresh;    /* (rad/s)²，每轴方差上限                 */
     float accel_var_thresh;   /* (m/s²)²，三轴方差之和上限              */
@@ -65,6 +68,7 @@ typedef struct {
 
     /* ── 零偏在线更新 ─────────────────────────────────────────────── */
     float bias_alpha;         /* 0..1，每次 STATIC 帧的低通系数；越大越快 */
+    float bias_clip;          /* rad/s，零偏的物理上界，EWMA 之后钳位     */
 } zupt_config_t;
 
 typedef struct {
@@ -122,7 +126,8 @@ zupt_state_t  zupt_get_state(const zupt_t *z);
 const float * zupt_get_bias (const zupt_t *z);
 
 /**
- * 强制设置初始零偏（例如来自 imu_calibrate_gyro_bias() 的 10 s 静态标定）。
+ * 强制设置初始零偏（例如来自 imu_calibrate_gyro_bias() 的开机静态标定，
+ * 时长见 imu.c 的 CAL_NUM_SAMPLES）。
  * 调用后 ZUPT 会以此为基准做后续的小幅在线修正。
  */
 void zupt_set_bias(zupt_t *z, const float bias[3]);
