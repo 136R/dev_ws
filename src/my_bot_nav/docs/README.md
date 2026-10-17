@@ -10,12 +10,15 @@ nav.launch.py  ──┬── navigation_launch.py  → Nav2 全家桶
                                               + keepout_mask_reloader（监听画笔保存，热加载掩码）
 ```
 
-参数四选一（由 `use_sim_time` × `controller` 决定），**全部是 ThetaStarPlanner + 局部控制器**：
+参数六选一（由 `use_sim_time` × `controller` 决定）：
 
-| | `controller:=rpp`（默认） | `controller:=neupan` |
-| --- | --- | --- |
-| **仿真** | `config/sim/nav2_params_rpp.yaml` | `config/sim/nav2_params_neupan.yaml` |
-| **实机** | `config/hw/nav2_params_hw_rpp.yaml` | `config/hw/nav2_params_hw_neupan.yaml` |
+| | `controller:=rpp`（默认） | `controller:=neupan` | `controller:=neupan_smac2d` |
+| --- | --- | --- | --- |
+| **仿真** | `config/sim/nav2_params_rpp.yaml` | `config/sim/nav2_params_neupan.yaml` | `config/sim/nav2_params_neupan_smac2d.yaml` |
+| **实机** | `config/hw/nav2_params_hw_rpp.yaml` | `config/hw/nav2_params_hw_neupan.yaml` | `config/hw/nav2_params_hw_neupan_smac2d.yaml` |
+
+前两列的全局规划器是 ThetaStar，`neupan_smac2d` 换成 SmacPlanner2D，且换了另一份
+行为树（见各自参数文件的 `default_nav_to_pose_bt_xml`）。
 
 也可用 `params_file:=<路径>` 直接覆盖。
 
@@ -27,7 +30,7 @@ nav.launch.py  ──┬── navigation_launch.py  → Nav2 全家桶
 
 | 不变量 | 违反后的症状 | 去哪看 |
 | --- | --- | --- |
-| **局部控制器只有 `rpp` 和 `neupan` 两个** | 照着网上/旧笔记调 MPPI / DWB / Smac 的参数 —— 那些插件**根本没加载** | `nav.launch.py` 的 `_include_nav()` 只会四选一 |
+| **`controller` 只认 `rpp` / `neupan` / `neupan_smac2d`** | 拼错或用别的值不会报错，会**静默退回 rpp**；照着网上/旧笔记调 MPPI / DWB 的参数则那些插件**根本没加载** | `nav.launch.py` 的 `_include_nav()`，`else` 分支即 rpp 兜底 |
 | **`nav.launch.py` 已内含 keepout** | 再单独起一遍 `keepout.launch.py` → 节点重名冲突 | `nav.launch.py` 里 `IncludeLaunchDescription(keepout.launch.py)`，`keepout:=false` 可关 |
 | **地图名不能叫 `map`** | 画的禁行区被 app 的实时镜像悄悄覆盖 | 见 [多地图与禁行区.md](多地图与禁行区.md) 与 [docs/APP](../../../docs/APP/) |
 | **`keepout_filter` 必须排在 `inflation_layer` 之前** | 禁行区不被膨胀，机器人会贴着禁行区边缘走 | costmap 的 `plugins` 列表按顺序执行 |

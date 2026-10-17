@@ -1,5 +1,8 @@
-# 全局: ThetaStar
-# 局部: RPP
+# 全局: SmacPlanner2D (nav2_smac_planner/SmacPlanner2D)
+# 局部: RPP (nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController)
+#
+# 由 nav2_params_neupan_smac2d.yaml 派生。唯一差异: controller_server 的 FollowPath 由
+# RotationShim+NeuPAN 换成 RPP（参数沿用旧 rpp 版）。planner/costmap/BT 等其余配置与 smac2d 版一致。
 
 bt_navigator:
   ros__parameters:
@@ -7,11 +10,14 @@ bt_navigator:
     global_frame: map
     robot_base_frame: base_footprint
     odom_topic: /odometry/filtered
-    bt_loop_duration: 10
+    bt_loop_duration: 20
     default_server_timeout: 20
 
     # 全局规划器更新频率 与 行为恢复
-    default_nav_to_pose_bt_xml: /home/bingda/dev_ws/src/my_bot_nav/config/common/bt/navigate_to_pose_custom.xml
+    # 用 smac2d 专用 BT（去掉了 SmoothPath，平滑全交给 SmacPlanner2D 内置 Smoother）。
+    # ThetaStar 的几份配置仍用 navigate_to_pose_custom.xml —— ThetaStar 没有内置平滑器，
+    # SmoothPath 是唯一的平滑环节，不能删。
+    default_nav_to_pose_bt_xml: /home/bingda/dev_ws/src/my_bot_nav/config/common/bt/navigate_to_pose_smac2d.xml
 
     wait_for_service_timeout: 1000
     plugin_lib_names:
@@ -86,21 +92,21 @@ controller_server:
 
     progress_checker:
       plugin: "nav2_controller::SimpleProgressChecker"
-      required_movement_radius: 0.3
-      movement_time_allowance: 10.0
+      required_movement_radius: 0.1
+      movement_time_allowance: 8.0    # 停住 8s 判无进度失败（配合 BT number_of_retries 封顶恢复时长）
     general_goal_checker:
       stateful: True
       plugin: "nav2_controller::SimpleGoalChecker"
-      xy_goal_tolerance: 0.05        # 
-      yaw_goal_tolerance: 6.28       # 沿用你原来的"不约束 yaw"
+      xy_goal_tolerance: 0.05
+      yaw_goal_tolerance: 6.28       # 不约束 yaw (差速 line 跟踪不保证终点朝向)
 
     # ───────────────────────────── RPP 控制器 ─────────────────────────────
     FollowPath:
       plugin: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
 
       # —— 速度/加速度（对齐你的 velocity_smoother：max 0.2 m/s, accel 0.8）——
-      desired_linear_vel: 0.3
-      min_approach_linear_velocity: 0.05      # 接近目标时的最低速
+      desired_linear_vel: 0.4
+      min_approach_linear_velocity: 0.1      # 接近目标时的最低速
       approach_velocity_scaling_dist: 0.4     # 距目标 0.4m 开始线性减速
       max_allowed_time_to_collision_up_to_carrot: 1.0   # 1s 内会撞就停
 
@@ -108,26 +114,26 @@ controller_server:
       # 室内 0.2 m/s 低速场景下，lookahead 0.4~0.6m 比较合适
       use_velocity_scaled_lookahead_dist: true
       lookahead_dist: 0.3            # 固定 lookahead 兜底
-      min_lookahead_dist: 0.15        # 慢速时也不能太短
-      max_lookahead_dist: 0.4        # 高速时也不能太长
+      min_lookahead_dist: 0.25        # 慢速时也不能太短
+      max_lookahead_dist: 0.6        # 高速时也不能太长
       lookahead_time: 1.0            # vel_scaled 模式下 = vel * 1.5s
 
       # —— 速度调控（regulation）——
       # 这是 RPP 的招牌：在急转弯/接近障碍时自动减速
       use_regulated_linear_velocity_scaling: true
       regulated_linear_scaling_min_radius: 0.45   # 转弯半径 < 0.45m 开始减速
-      regulated_linear_scaling_min_speed: 0.05   # 减速下限
+      regulated_linear_scaling_min_speed: 0.1   # 减速下限
 
       use_cost_regulated_linear_velocity_scaling: true   # 靠近障碍也减速
-      cost_scaling_dist: 0.3         # 距障碍 0.3m 内开始减速
+      cost_scaling_dist: 0.4         # 距障碍 0.3m 内开始减速
       cost_scaling_gain: 1.0
       inflation_cost_scaling_factor: 6.0    # 必须等于 local_costmap inflation_layer 的 cost_scaling_factor
 
       # —— 差速车专项：原地转向对齐路径 ——
       # 这是 RPP 替代 RotationShim 的内置功能，差速车强烈建议开启
       use_rotate_to_heading: true
-      rotate_to_heading_min_angle: 0.349        # 偏差 > 20° 时先原地转
-      rotate_to_heading_angular_vel: 1.2        # 原地转的角速度
+      rotate_to_heading_min_angle: 0.5236       # 偏差 > 30° 时先原地转
+      rotate_to_heading_angular_vel: 1.6        # 原地转的角速度
       max_angular_accel: 2.4                    # 对齐 velocity_smoother 的 1.5
 
       # —— 碰撞检测（前瞻撞墙就停）——
@@ -154,20 +160,9 @@ local_costmap:
       height: 3
       resolution: 0.05
 
-      # 车体外廓 = 圆盘 ∪ 两个驱动轮，不是单纯的圆：
-      #   圆盘   以 (-0.047, 0) 为心、r=0.11（base_link 在圆心前方 0.047，故 robot_radius 画不出来）
-      #   驱动轮 俯视是矩形 x∈[-0.035, 0.035]、|y|∈[0.082, 0.11]（轮 r=0.035、厚 0.028、轴距中心 0.096）
-      # ⚠️ 轮子必须单独算进来：圆盘在 x=0 处的半宽只有 √(0.11²-0.047²)=0.0995，而轮外沿在 0.11
-      #    —— 轮子在此突出盘缘 10.5 mm。
-      #    2026-08-12 修复：旧值只按「圆盘 + 余量」取正 12 边形，导致轮子前外角 (0.035, 0.11)
-      #    露在 footprint 外 10.2 mm。改这个数时务必把轮子四角一起验，不要只验圆盘。
-      # 现值：对 12 个方向取「外廓支撑函数 + 0.020 余量」的外切多边形，全部关键点余量均匀 20 mm。
-      #      四个主轴方向与旧值完全相同（前 0.083 / 后 -0.177 / 侧 ±0.13），只在轮子所在斜向外扩。
-      # 裸外廓（无余量）备查：
-      # footprint: "[[0.063, 0.0615], [0.035, 0.11], [-0.0765, 0.11], [-0.1275, 0.0805], [-0.157, 0.0295], [-0.157, -0.0295], [-0.1275, -0.0805], [-0.0765, -0.11], [0.035, -0.11], [0.063, -0.0615]]"
       footprint: "[[0.083, 0.0669], [0.0496, 0.1246], [0.0404, 0.13], [-0.0818, 0.13], [-0.1422, 0.0952], [-0.177, 0.0348], [-0.177, -0.0348], [-0.1422, -0.0952], [-0.0818, -0.13], [0.0404, -0.13], [0.0496, -0.1246], [0.083, -0.0669]]"
 
-      plugins: ["voxel_layer", "keepout_filter", "inflation_layer"]
+      plugins: ["obstacle_layer", "keepout_filter", "inflation_layer"]
       keepout_filter:
         plugin: "nav2_costmap_2d::KeepoutFilter"
         enabled: True
@@ -176,22 +171,19 @@ local_costmap:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 6.0
         inflation_radius: 0.17
-      voxel_layer:
-        plugin: "nav2_costmap_2d::VoxelLayer"
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
         enabled: True
-        publish_voxel_map: True
-        origin_z: 0.0
-        z_resolution: 0.05
-        z_voxels: 16
-        max_obstacle_height: 2.0
-        mark_threshold: 0
         observation_sources: scan
         scan:
-          topic: /scan
+          topic: /scan_filtered
           max_obstacle_height: 2.0
           clearing: True
           marking: True
           data_type: "LaserScan"
+          # inf 射线，而清除障碍靠射线穿过格子 → 障碍标了永远清不掉。
+          inf_is_valid: true
+          # 不随雷达量程放大：本层被 3×3 窗口卡在 1.5m 半径，2.5 已经超出窗口了。
           raytrace_max_range: 3.0
           raytrace_min_range: 0.0
           obstacle_max_range: 2.5
@@ -210,17 +202,6 @@ global_costmap:
       robot_base_frame: base_footprint
       use_sim_time: True
 
-      # 车体外廓 = 圆盘 ∪ 两个驱动轮，不是单纯的圆：
-      #   圆盘   以 (-0.047, 0) 为心、r=0.11（base_link 在圆心前方 0.047，故 robot_radius 画不出来）
-      #   驱动轮 俯视是矩形 x∈[-0.035, 0.035]、|y|∈[0.082, 0.11]（轮 r=0.035、厚 0.028、轴距中心 0.096）
-      # ⚠️ 轮子必须单独算进来：圆盘在 x=0 处的半宽只有 √(0.11²-0.047²)=0.0995，而轮外沿在 0.11
-      #    —— 轮子在此突出盘缘 10.5 mm。
-      #    2026-08-12 修复：旧值只按「圆盘 + 余量」取正 12 边形，导致轮子前外角 (0.035, 0.11)
-      #    露在 footprint 外 10.2 mm。改这个数时务必把轮子四角一起验，不要只验圆盘。
-      # 现值：对 12 个方向取「外廓支撑函数 + 0.020 余量」的外切多边形，全部关键点余量均匀 20 mm。
-      #      四个主轴方向与旧值完全相同（前 0.083 / 后 -0.177 / 侧 ±0.13），只在轮子所在斜向外扩。
-      # 裸外廓（无余量）备查：
-      # footprint: "[[0.063, 0.0615], [0.035, 0.11], [-0.0765, 0.11], [-0.1275, 0.0805], [-0.157, 0.0295], [-0.157, -0.0295], [-0.1275, -0.0805], [-0.0765, -0.11], [0.035, -0.11], [0.063, -0.0615]]"
       footprint: "[[0.083, 0.0669], [0.0496, 0.1246], [0.0404, 0.13], [-0.0818, 0.13], [-0.1422, 0.0952], [-0.177, 0.0348], [-0.177, -0.0348], [-0.1422, -0.0952], [-0.0818, -0.13], [0.0404, -0.13], [0.0496, -0.1246], [0.083, -0.0669]]"
 
       resolution: 0.05
@@ -231,14 +212,15 @@ global_costmap:
         enabled: True
         observation_sources: scan
         scan:
-          topic: /scan
+          topic: /scan_filtered
           max_obstacle_height: 2.0
           clearing: True
           marking: True
           data_type: "LaserScan"
-          raytrace_max_range: 4.0
+          inf_is_valid: true
+          raytrace_max_range: 8.0
           raytrace_min_range: 0.0
-          obstacle_max_range: 3.5
+          obstacle_max_range: 7.0
           obstacle_min_range: 0.1
       static_layer:
         plugin: "nav2_costmap_2d::StaticLayer"
@@ -249,11 +231,11 @@ global_costmap:
         filter_info_topic: "/costmap_filter_info"
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 6.0
+        cost_scaling_factor: 3.5
         inflation_radius: 0.2
       always_send_full_costmap: True
 
-# Keepout 禁行区滤波信息服务（掩码由 keepout_mask_diff 节点直接发布）
+# Keepout 禁行区滤波信息服务（随 keepout.launch.py 启动）
 costmap_filter_info_server:
   ros__parameters:
     use_sim_time: True
@@ -281,13 +263,24 @@ planner_server:
     expected_planner_frequency: 1.0
     use_sim_time: True
     planner_plugins: ["GridBased"]
+    # 插件名保持 "GridBased" 不变——BT 里 ComputePathToPose 的 planner_id="GridBased" 才对得上
     GridBased:
-      plugin: "nav2_theta_star_planner/ThetaStarPlanner"
-      how_many_corners: 8       # 邻接数，8 是默认
-      w_euc_cost: 1.5           # 欧式距离权重
-      w_traversal_cost: 2.0     # 通过代价（cost）权重——越大越远离障碍
-      w_heuristic_cost: 1.0     # A* 启发权重
+      plugin: "nav2_smac_planner/SmacPlanner2D"
+      tolerance: 0.15
+      downsample_costmap: false         # 不降采样 costmap（分辨率已 0.05，够用）
+      downsampling_factor: 1
+      allow_unknown: true               # 允许穿未知区域（track_unknown_space=true，避免局部无解）
+      max_iterations: 1000000           # 搜索迭代上限（放大防大地图早退）
+      max_on_approach_iterations: 1000  # 接近目标后允许的额外迭代
+      max_planning_time: 1.0            # 单次规划超时(s)
+      cost_travel_multiplier: 2.5       # 通过代价权重：越大越偏好远离障碍的低代价栅格（离障余量↑）
       use_final_approach_orientation: false
+      smoother:                         # SmacPlanner2D 自带的路径平滑。现在是唯一的平滑环节
+                                        # ——BT 已换成 navigate_to_pose_smac2d.xml，没有 SmoothPath 了。
+        max_iterations: 1000
+        w_smooth: 0.2                   # 平滑项权重（越大越平滑，可能偏离原路径）
+        w_data: 0.5                     # 贴合原始路径权重
+        tolerance: 1.0e-10
 
 smoother_server:
   ros__parameters:
@@ -321,7 +314,7 @@ behavior_server:
     use_sim_time: True
     simulate_ahead_time: 2.0
     max_rotational_vel: 1.2
-    min_rotational_vel: 0.3
+    min_rotational_vel: 0.35
     rotational_acc_lim: 2.4
 
 robot_state_publisher:
@@ -345,11 +338,11 @@ velocity_smoother:
     smoothing_frequency: 20.0
     scale_velocities: False
     feedback: "OPEN_LOOP"
-    max_velocity: [0.3, 0.0, 1.2]
-    min_velocity: [-0.3, 0.0, -1.2]
+    max_velocity: [0.4, 0.0, 3.2]
+    min_velocity: [-0.4, 0.0, -3.2]
     max_accel: [1.0, 0.0, 2.4]
     max_decel: [-1.0, 0.0, -2.4]
-    odom_topic: "odom"
+    odom_topic: "/odometry/filtered"
     odom_duration: 0.1
     deadband_velocity: [0.0, 0.0, 0.0]
     velocity_timeout: 1.0

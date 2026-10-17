@@ -101,4 +101,3 @@ ros2 run my_bot_task baseline_metrics.py --ros-args \
 # topic list 不吐字，先跑这一条区分
 ros2 topic list --no-daemon    # 秒回 = daemon 没起来，不是 DDS 配错
 ros2 daemon start              # 幂等，0.2~0.4 s，安全
-ros2 daemon stop

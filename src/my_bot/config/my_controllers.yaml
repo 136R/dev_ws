@@ -29,8 +29,8 @@ diff_cont:
     linear:
       x:
         has_velocity_limits: true
-        max_velocity: 0.35
-        min_velocity: -0.35
+        max_velocity: 0.45
+        min_velocity: -0.45
         has_acceleration_limits: true
         max_acceleration: 1.0
         has_jerk_limits: false
@@ -38,8 +38,8 @@ diff_cont:
     angular:
       z:
         has_velocity_limits: true
-        max_velocity: 1.2
-        min_velocity: -1.2
+        max_velocity: 1.6
+        min_velocity: -1.6
         has_acceleration_limits: true
         max_acceleration: 2.4
         has_jerk_limits: false

@@ -24,6 +24,12 @@ def _include_nav(context, pkg_nav):
             params_name = (
                 "nav2_params_neupan.yaml" if use_sim else "nav2_params_hw_neupan.yaml"
             )
+        elif controller == "neupan_smac2d":
+            params_name = (
+                "nav2_params_neupan_smac2d.yaml"
+                if use_sim
+                else "nav2_params_hw_neupan_smac2d.yaml"
+            )
         else:  # rpp (默认)
             params_name = (
                 "nav2_params_rpp.yaml" if use_sim else "nav2_params_hw_rpp.yaml"
@@ -79,7 +85,8 @@ def generate_launch_description():
     controller_arg = DeclareLaunchArgument(
         "controller",
         default_value="rpp",
-        description="局部控制器: rpp (默认) 或 neupan (仿真/实机均可)",
+        description="局部控制器: rpp (默认) / neupan / neupan_smac2d"
+        "；三者仿真实机均可。neupan_smac2d 的全局规划器是 SmacPlanner2D，另两个是 ThetaStar",
     )
     autostart_arg = DeclareLaunchArgument(
         "autostart",

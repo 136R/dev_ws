@@ -1,7 +1,5 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
 平台信息
 
 - **硬件：** Orange Pi 5 Pro（ARM Cortex-A76，RK3588），运行 ROS2 Humble
@@ -39,10 +37,6 @@ source /opt/ros/humble/setup.bash && source ~/dev_ws/install/setup.bash
 
 排查：先看一个**已知肯定在跑**的话题（如 `/diff_cont/odom`）。看不到 = 环境问题；
 看得到但目标话题没有 = 真的没发布。
-
-## 与我协作的约定
-
-@docs/与我协作的约定.md
 
 ## 构建
 
@@ -100,17 +94,18 @@ TwistMux: /cmd_vel_keyboard 优先于 /cmd_vel_nav → /diff_cont/cmd_vel_unstam
 ## 配置文件
 
 
-| 文件                                                             | 用途                                                            |
-| ---------------------------------------------------------------- | --------------------------------------------------------------- |
-| `src/my_bot_hw/config/hw_controllers.yaml`                       | 控制器频率、轮系几何校正倍数、速度限制                          |
-| `src/my_bot_hw/config/ekf_hw.yaml`                               | EKF 融合权重与协方差                                            |
-| `src/my_bot_hw/config/laser_filters.yaml`                        | 激光雷达距离/角度过滤                                           |
-| `src/my_bot_slam/config/mapper_params_{hw,sim}.yaml`             | SLAM Toolbox 调参                                               |
-| `src/my_bot_nav/config/{hw,sim}/nav2_params_*_{rpp,neupan}.yaml` | Nav2 调参（**只有这四个会被加载**）                             |
-| `src/my_bot_nav/config/{hw,sim}/neupan_{hw,sim}.yaml`            | NeuPAN 规划器调参                                               |
-| `firmware/my_robot_stm32/Core/Inc/app/robot_config.h`            | STM32 PI 增益、编码器 CPR、减速比、机器人几何（**唯一真相源**） |
+| 文件                                                                           | 用途                                                            |
+| ------------------------------------------------------------------------------ | --------------------------------------------------------------- |
+| `src/my_bot_hw/config/hw_controllers.yaml`                                     | 控制器频率、轮系几何校正倍数、速度限制                          |
+| `src/my_bot_hw/config/ekf_hw.yaml`                                             | EKF 融合权重与协方差                                            |
+| `src/my_bot_hw/config/laser_filters.yaml`                                      | 激光雷达距离/角度过滤                                           |
+| `src/my_bot_slam/config/mapper_params_{hw,sim}.yaml`                           | SLAM Toolbox 调参                                               |
+| `src/my_bot_nav/config/{hw,sim}/nav2_params_*_{rpp,neupan,neupan_smac2d}.yaml` | Nav2 调参（**只有这六个会被 `controller:=` 选中**）             |
+| `src/my_bot_nav/config/{hw,sim}/neupan_{hw,sim}.yaml`                          | NeuPAN 规划器调参                                               |
+| `firmware/my_robot_stm32/Core/Inc/app/robot_config.h`                          | STM32 PI 增益、编码器 CPR、减速比、机器人几何（**唯一真相源**） |
 
-> MPPI / DWB / SmacPlanner 的旧参数与旧文档已删除（零引用、已不在技术栈内）。需要时去 git 历史找。
+> MPPI / DWB 的旧参数与旧文档已删除（零引用、已不在技术栈内）。需要时去 git 历史找。
+> SmacPlanner2D 不在此列 —— `neupan_smac2d` 那两份参数在用它。
 
 ## 文档入口
 
@@ -126,7 +121,6 @@ TwistMux: /cmd_vel_keyboard 优先于 /cmd_vel_nav → /diff_cont/cmd_vel_unstam
 - `docs/APP/` —— 上位机 GUI（ROS_Flutter_Gui_App）集成：后端接口、前端补丁、复现部署
 - `docs/workflows/实机同步与部署.md` —— 开发机 ↔ 开发板（**用 git，不要用 rsync**）、arm64 编译要求
 - `docs/architecture/`、`docs/workflows/` —— 仓库级架构与工作流
-- `docs/代码与文档规范.md` —— 注释怎么写、文档为什么不写参数值（AI 由 code-style skill 自动加载）
 
 > **动代码前先读对应包的 `docs/README.md` 的「不变量」表** —— 那里列的是"违反了就出错、
 > 但从代码里看不出来"的约束。
