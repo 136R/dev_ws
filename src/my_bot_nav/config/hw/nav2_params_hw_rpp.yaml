@@ -120,11 +120,11 @@ controller_server:
 
       # —— 速度调控（regulation）——
       # 这是 RPP 的招牌：在急转弯/接近障碍时自动减速
-      use_regulated_linear_velocity_scaling: true
+      use_regulated_linear_velocity_scaling: false
       regulated_linear_scaling_min_radius: 0.45   # 转弯半径 < 0.45m 开始减速
       regulated_linear_scaling_min_speed: 0.1   # 减速下限
 
-      use_cost_regulated_linear_velocity_scaling: true   # 靠近障碍也减速
+      use_cost_regulated_linear_velocity_scaling: false   # 靠近障碍也减速
       cost_scaling_dist: 0.4         # 距障碍 0.3m 内开始减速
       cost_scaling_gain: 1.0
       inflation_cost_scaling_factor: 6.0    # 必须等于 local_costmap inflation_layer 的 cost_scaling_factor
