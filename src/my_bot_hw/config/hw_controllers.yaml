@@ -20,49 +20,25 @@ diff_cont:
     left_wheel_names:  ['left_wheel_joint']
     right_wheel_names: ['right_wheel_joint']
 
-    # Real robot dimensions — 2026-08 底盘重做后实测值（几何真相源就是这里，不是固件）
-    # 旧值: separation=0.175, radius=0.033401095
-    wheel_separation: 0.192   # meters, center-to-center (胎面中心平面间距, 实测)
-    wheel_radius: 0.035       # meters (直径 0.07, 实测)
+    # 实测几何（几何真相源在这里，不在固件）
+    wheel_separation: 0.192   # m，胎面中心间距
+    wheel_radius: 0.035       # m，名义值
 
-    # Fine-tuning multipliers (adjust after physical calibration test)
-    # 旧几何的标定补偿已随底盘重做失效，全部复位 1.0，重标后逐项回填。
-    # 旧值备查: separation 0.98012 / left 1.0 / right 0.99
-    #
-    # 轮径 —— 2026-08-13 标定回填。10 组直线实测（0.56~2.98 m）线性回归:
-    #   odom = 1.05235 x true，残差 RMS 2.7 mm，截距 -1.7 mm(≈0)，比值 std 0.0015
-    #   => 真实平均滚动半径 0.0332174 m（卡尺外径 0.07 是名义值，花纹+压陷小 5.2%）
-    #   两个 multiplier 同除 1.05235，左右比 0.9975 保持不变（该比值是跑直用的，别单独动）
-    #   交叉验证: 反推半径与底盘重做前的旧标定平均值 0.0332341 差 0.05%
-    left_wheel_radius_multiplier: 0.94788    # 标定前 0.9975
-    right_wheel_radius_multiplier: 0.95026   # 标定前 1.0
-    #
-    # 轮距 —— 2026-08-13 标定回填。原地慢转(0.5 rad/s) 10 圈 ×2，读 /diff_cont/odom 累计 yaw，
-    # 以同一趟 /odometry/filtered(=IMU) 的累计 yaw 为真值配对:
-    #   3425.99/3597.56 = 0.95231 ; 3426.94/3600.18 = 0.95188  =>  k = 0.95209
-    #   两次轮式读数差 0.95°(0.028%)，重复性good
-    #   => 有效轮距 0.192 x 0.95209 = 0.18280 m，比卡尺量的胎面中心距小 9.2 mm
-    #
-    # ⚠️ 该值只影响 (a) /diff_cont/odom 的 yaw 和 (b) cmd_vel 逆解。EKF 航向 100% 来自 IMU，
-    #    标定/复验一律读 /diff_cont/odom，读 /odometry/filtered 会得到假阳性。
-    #    详见 docs/spec/2026-08-11-实机几何改动同步.md 的 F13 与第 6 步第 2 条。
-    # ⚠️ 标定工况是原地转(纯 scrub)，与行进中大半径转弯的轮胎滑移模式不同，
-    #    该值对后者未必最优 —— 导航转弯若系统性偏大/偏小，回来看这条。
-    wheel_separation_multiplier: 0.95209   # 标定前 1.0
+    # 2026-08-13 标定值，方法见 docs/里程计与雷达标定.md；左右轮径比只能整体缩放
+    left_wheel_radius_multiplier: 0.94788
+    right_wheel_radius_multiplier: 0.95026
+    # 只影响 /diff_cont/odom 的 yaw 和 cmd_vel 逆解；EKF 航向来自 IMU，标定须读 /diff_cont/odom
+    wheel_separation_multiplier: 0.95209
     use_stamped_vel: false
 
     odom_frame_id: odom
     base_frame_id: base_footprint
-    enable_odom_tf: false  # TF published by ekf_filter_node instead
-    # EKF currently fuses only /odom vx. Start with a conservative encoder
-    # velocity covariance and keep unused axes effectively ignored.
+    enable_odom_tf: false  # TF 由 EKF 发布
+    # EKF 只融合 vx，其余轴协方差设大等于忽略
     pose_covariance_diagonal: [1.0e6, 1.0e6, 1.0e6, 1.0e6, 1.0e6, 1.0e6]
-    # twist_covariance_diagonal: [1.0e-2, 1.0e6, 1.0e6, 1.0e6, 1.0e6, 1.0e6]
-    # vyaw covariance 1e-3 (std≈0.032 rad/s): encoder angular rate anchors IMU yaw drift
     twist_covariance_diagonal: [1.0e-6, 1.0e6, 1.0e6, 1.0e6, 1.0e6, 1.0e-3]
 
-    # Stop robot if no cmd_vel received for 0.5s
-    cmd_vel_timeout: 1.0
+    cmd_vel_timeout: 1.0  # s，超时无指令即停车
 
     # Velocity and acceleration limits
     linear:

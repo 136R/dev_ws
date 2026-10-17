@@ -14,10 +14,8 @@ bt_navigator:
     default_server_timeout: 20
 
     # 全局规划器更新频率 与 行为恢复
-    # 用 smac2d 专用 BT（去掉了 SmoothPath，平滑全交给 SmacPlanner2D 内置 Smoother）。
-    # ThetaStar 的几份配置仍用 navigate_to_pose_custom.xml —— ThetaStar 没有内置平滑器，
-    # SmoothPath 是唯一的平滑环节，不能删。
-    default_nav_to_pose_bt_xml: /home/orangepi/dev_ws/src/my_bot_nav/config/common/bt/navigate_to_pose_smac2d.xml
+    # Nav2 原版 BT（每秒重规划一次全局路径），重试次数改为 2；无 SmoothPath，平滑由 SmacPlanner2D 内置 Smoother 负责。
+    default_nav_to_pose_bt_xml: /home/orangepi/dev_ws/src/my_bot_nav/config/common/bt/navigate_to_pose_replan_1hz.xml
 
     wait_for_service_timeout: 1000
     plugin_lib_names:

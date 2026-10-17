@@ -14,10 +14,8 @@ bt_navigator:
     default_server_timeout: 20
 
     # 全局规划器更新频率 与 行为恢复
-    # 用 smac2d 专用 BT（去掉了 SmoothPath，平滑全交给 SmacPlanner2D 内置 Smoother）。
-    # ThetaStar 的几份配置仍用 navigate_to_pose_custom.xml —— ThetaStar 没有内置平滑器，
-    # SmoothPath 是唯一的平滑环节，不能删。
-    default_nav_to_pose_bt_xml: /home/bingda/dev_ws/src/my_bot_nav/config/common/bt/navigate_to_pose_smac2d.xml
+    # Nav2 原版 BT（每秒重规划一次全局路径），重试次数改为 2；无 SmoothPath，平滑由 SmacPlanner2D 内置 Smoother 负责。
+    default_nav_to_pose_bt_xml: /home/bingda/dev_ws/src/my_bot_nav/config/common/bt/navigate_to_pose_replan_1hz.xml
 
     wait_for_service_timeout: 1000
     plugin_lib_names:
@@ -120,11 +118,11 @@ controller_server:
 
       # —— 速度调控（regulation）——
       # 这是 RPP 的招牌：在急转弯/接近障碍时自动减速
-      use_regulated_linear_velocity_scaling: true
+      use_regulated_linear_velocity_scaling: false
       regulated_linear_scaling_min_radius: 0.45   # 转弯半径 < 0.45m 开始减速
       regulated_linear_scaling_min_speed: 0.1   # 减速下限
 
-      use_cost_regulated_linear_velocity_scaling: true   # 靠近障碍也减速
+      use_cost_regulated_linear_velocity_scaling: false   # 靠近障碍也减速
       cost_scaling_dist: 0.4         # 距障碍 0.3m 内开始减速
       cost_scaling_gain: 1.0
       inflation_cost_scaling_factor: 6.0    # 必须等于 local_costmap inflation_layer 的 cost_scaling_factor
