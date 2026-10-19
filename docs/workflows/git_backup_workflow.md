@@ -293,16 +293,16 @@ git clone git@github.com:你的用户名/仓库名.git ~/dev_ws
 ## 十、开发机 ↔ 开发板的完整流程
 
 ```
-开发机改代码  →  git commit
+开发机改代码  →  仿真跑通  →  git commit
        │
-       ├─→  git push pi main      局域网直传开发板（0.8s，不绕 GitHub）
-       │                          板子有未提交改动时会【拒绝】，不会覆盖
+       ├─→  git push pi main      局域网直传，落到板子的 incoming 分支（不动板子工作区）
+       │      └─→  板子 git merge --autostash incoming   用上新功能（没提交的调参自动收起再放回）
        │
        └─→  git push origin main  异地备份到 GitHub
 
-开发板调参    →  git commit（在板子上）
+开发板调参（中途不用提交）  →  调到满意  →  git commit（在板子上）
        │
-       └─→  开发机 git fetch pi && git merge pi/main   把实机调参带回来
+       └─→  开发机 git pull pi main   把实机调参带回来
 ```
 
 **不要用 rsync 同步代码。** 取回开发板上 git 不跟踪的产物（地图、rosbag）才用 rsync。
