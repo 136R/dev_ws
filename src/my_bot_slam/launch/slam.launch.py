@@ -134,13 +134,15 @@ def generate_launch_description():
     mode = LaunchConfiguration('mode')
     use_sim_time = LaunchConfiguration('use_sim_time')
 
-    params_file = PythonExpression([
-        "'",
-        os.path.join(pkg_slam, 'config', 'mapper_params_sim.yaml'),
-        "' if '", use_sim_time, "' == 'true' else '",
-        os.path.join(pkg_slam, 'config', 'mapper_params_hw.yaml'),
-        "'",
-    ])
+    # 建图 / 定位各一份参数（config/mapping、config/localization），再按 use_sim_time 选仿真 / 实机
+    def params_file(kind):
+        return PythonExpression([
+            "'",
+            os.path.join(pkg_slam, 'config', kind, 'mapper_params_sim.yaml'),
+            "' if '", use_sim_time, "' == 'true' else '",
+            os.path.join(pkg_slam, 'config', kind, 'mapper_params_hw.yaml'),
+            "'",
+        ])
     is_mapping = PythonExpression(
         ["'", mode, "' == 'mapping'"]
     )
@@ -152,7 +154,7 @@ def generate_launch_description():
         name='slam_toolbox',
         output='screen',
         parameters=[
-            params_file,
+            params_file('mapping'),
             {
                 'mode': mode,
                 'use_sim_time': use_sim_time,
@@ -171,7 +173,7 @@ def generate_launch_description():
             name='slam_toolbox',
             output='screen',
             parameters=[
-                params_file,
+                params_file('localization'),
                 {
                     'mode': mode,
                     'use_sim_time': use_sim_time,

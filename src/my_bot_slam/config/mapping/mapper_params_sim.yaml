@@ -1,5 +1,5 @@
 # =============================================================================
-# slam_toolbox 建图/定位参数（仿真）
+# slam_toolbox 建图参数（仿真）—— slam.launch.py mode:=mapping 加载；定位用 ../localization/ 下同名文件
 # 注意：slam_toolbox 作者没有专门调参指南，README 仅给出几条零散建议：
 #   - 求解器实测推荐 SPARSE_NORMAL_CHOLESKY + SCHUR_JACOBI，勿轻改
 #   - 里程计好可不用 loss；有打滑/异常时建议 HuberLoss
@@ -25,8 +25,7 @@ slam_toolbox:
     base_frame: base_footprint
     scan_topic: /scan_filtered
     use_map_saver: true
-    # mode: mapping
-    mode: localization    # 定位模式：加载已有地图（作者提示此模式需细调 + 依赖高质量里程计）
+    mode: mapping
 
     # map_file_name 由 slam.launch.py 按地图名注入（~/.maps/<name>/<name>），
     # 地图名取自 map:= 参数或 ~/.maps/current_map。mapping 模式不需要它。

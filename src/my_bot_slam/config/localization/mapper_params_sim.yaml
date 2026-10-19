@@ -1,5 +1,5 @@
 # =============================================================================
-# slam_toolbox 建图/定位参数（仿真）
+# slam_toolbox 定位参数（仿真）—— slam.launch.py mode:=localization 加载；建图用 ../mapping/ 下同名文件
 # 注意：slam_toolbox 作者没有专门调参指南，README 仅给出几条零散建议：
 #   - 求解器实测推荐 SPARSE_NORMAL_CHOLESKY + SCHUR_JACOBI，勿轻改
 #   - 里程计好可不用 loss；有打滑/异常时建议 HuberLoss
@@ -25,7 +25,6 @@ slam_toolbox:
     base_frame: base_footprint
     scan_topic: /scan_filtered
     use_map_saver: true
-    # mode: mapping
     mode: localization    # 定位模式：加载已有地图（作者提示此模式需细调 + 依赖高质量里程计）
 
     # map_file_name 由 slam.launch.py 按地图名注入（~/.maps/<name>/<name>），
@@ -43,7 +42,8 @@ slam_toolbox:
     min_laser_range: 0.1
     # max_laser_range: 参与建图的激光最大有效距离(米)。调大→利用远点、回环更易但远点噪声大；调小→只信近处更稳但信息少
     max_laser_range: 8.0
-    minimum_time_interval: 0.1
+    # 定位模式下 = 处理新扫描的间隔（距离门槛设 0 后靠它控 CPU）。0.1→0.2：CPU 34%→20%，精度不变（2026-10-19 调参记录）
+    minimum_time_interval: 0.2
     transform_timeout: 0.5
     tf_buffer_duration: 30.0
     stack_size_to_use: 40000000
@@ -55,7 +55,8 @@ slam_toolbox:
 
     # minimum_travel_distance / minimum_travel_heading: 触发新增关键帧的最小平移(米)/转角(弧度)，默认 0.2 / 10°。
     #   调小→关键帧更密、地图更细但计算与内存上升；调大→关键帧稀疏、省资源但细节和回环质量下降
-    minimum_travel_distance: 0.2
+    #   Humble 的 shouldProcessScan 只按平移放行、不看转角：设 0 才能在原地转时修正定位（2026-10-19 调参记录）
+    minimum_travel_distance: 0.0
     minimum_travel_heading: 0.2
 
     # scan_buffer_size: 扫描链缓存帧数（定位模式=环形缓冲帧数），源码默认 70，经验≈max_scan_distance/travel_distance。

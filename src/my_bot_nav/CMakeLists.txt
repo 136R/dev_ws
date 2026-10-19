@@ -10,7 +10,18 @@ install(
 
 install(PROGRAMS
   scripts/keepout_mask_reloader.py
+  scripts/loc_error_test.py
+  scripts/map_eval.py
+  scripts/map_group.sh
+  scripts/odom_tf_relay.py
+  scripts/record_bag.sh
+  scripts/truth_render.py
+  scripts/truth_tf_relay.py
   scripts/neupan_metrics.py
+  scripts/nav_route_test.py
+  scripts/path_center_check.py
+  scripts/plan_curvature.py
+  scripts/plan_sweep.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

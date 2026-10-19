@@ -40,6 +40,7 @@ def generate_launch_description():
     use_respawn = LaunchConfiguration("use_respawn")
     log_level = LaunchConfiguration("log_level")
     goal_pose_topic = LaunchConfiguration("goal_pose_topic")
+    path_valid_service = LaunchConfiguration("path_valid_service")
 
     lifecycle_nodes = [
         "controller_server",
@@ -128,6 +129,13 @@ def generate_launch_description():
         description="bt_navigator 的目标话题；任务层接管时改成 nav2/goal_pose",
     )
 
+    # BT 里 IsPathValid 问的服务。默认 = planner_server 自带的；传 /path_center_check 改用中心格子检查
+    declare_path_valid_service_cmd = DeclareLaunchArgument(
+        "path_valid_service",
+        default_value="is_path_valid",
+        description="BT 中 IsPathValid 调用的服务名；/path_center_check = 只看车中心格子",
+    )
+
     load_nodes = GroupAction(
         condition=IfCondition(PythonExpression(["not ", use_composition])),
         actions=[
@@ -183,7 +191,19 @@ def generate_launch_description():
                 respawn_delay=2.0,
                 parameters=[configured_params],
                 arguments=["--ros-args", "--log-level", log_level],
-                remappings=remappings + [("goal_pose", goal_pose_topic)],
+                remappings=remappings + [("goal_pose", goal_pose_topic)]
+                + [("is_path_valid", path_valid_service)],
+            ),
+            # 选了中心格子检查时，顺带起提供该服务的节点
+            Node(
+                package="my_bot_nav",
+                executable="path_center_check.py",
+                name="path_center_check",
+                output="screen",
+                parameters=[{"use_sim_time": use_sim_time}],
+                condition=IfCondition(
+                    PythonExpression(["'", path_valid_service, "' == '/path_center_check'"])
+                ),
             ),
             Node(
                 package="nav2_waypoint_follower",
@@ -308,6 +328,7 @@ def generate_launch_description():
     ld.add_action(declare_use_respawn_cmd)
     ld.add_action(declare_log_level_cmd)
     ld.add_action(declare_goal_pose_topic_cmd)
+    ld.add_action(declare_path_valid_service_cmd)
     # Add the actions to launch all of the navigation nodes
     ld.add_action(load_nodes)
     ld.add_action(load_composable_nodes)

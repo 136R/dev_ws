@@ -51,6 +51,7 @@ def _include_nav(context, pkg_nav):
                 "params_file": params_file,
                 "autostart": autostart,
                 "goal_pose_topic": LaunchConfiguration("goal_pose_topic"),
+                "path_valid_service": LaunchConfiguration("path_valid_service"),
             }.items(),
         ),
         # 禁行区流水线与 Nav2 用同一份 params（里面有 costmap_filter_info_server 配置），
@@ -111,6 +112,12 @@ def generate_launch_description():
         description="bt_navigator 的目标话题；任务层接管时改成 nav2/goal_pose",
     )
 
+    path_valid_service_arg = DeclareLaunchArgument(
+        "path_valid_service",
+        default_value="is_path_valid",
+        description="BT 中 IsPathValid 调用的服务名；/path_center_check = 只看车中心格子",
+    )
+
     return LaunchDescription(
         [
             use_sim_time_arg,
@@ -120,6 +127,7 @@ def generate_launch_description():
             keepout_arg,
             map_arg,
             goal_pose_topic_arg,
+            path_valid_service_arg,
             OpaqueFunction(function=_include_nav, args=[pkg_nav]),
         ]
     )
