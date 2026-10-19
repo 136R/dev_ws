@@ -30,7 +30,7 @@ slam_toolbox/srv/SerializePoseGraph \
 "{filename: '/home/orangepi/dev_ws/src/my_bot_slam/config/maps/hw/serialize_map/<地图名称>'}"
 
 # 3.nav2
-ros2 launch my_bot_nav nav.launch.py
+ros2 launch my_bot_nav nav.launch.py controller:=rpp path_valid_service:=/path_center_check
 ros2 launch my_bot_nav nav.launch.py controller:=neupan
 ros2 launch my_bot_nav nav.launch.py \
   params_file:=/home/orangepi/dev_ws/src/my_bot_nav/config/hw/nav2_params_hw_neupan_smac2d.yaml

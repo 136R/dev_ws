@@ -14,8 +14,8 @@ bt_navigator:
     default_server_timeout: 20
 
     # 全局规划器更新频率 与 行为恢复
-    # 每秒检查一次：旧路线没被挡、目标没变就保留，否则重规划（防左右摇摆）。其余同 replan_1hz。
-    default_nav_to_pose_bt_xml: /home/orangepi/dev_ws/src/my_bot_nav/config/common/bt/navigate_to_pose_replan_on_invalid.xml
+    # 每秒检查 5 次：旧路线没被挡、目标没变就保留，否则重规划（防左右摇摆）。其余同 replan_1hz。
+    default_nav_to_pose_bt_xml: /home/orangepi/dev_ws/src/my_bot_nav/config/common/bt/navigate_to_pose_replan_on_invalid_5hz.xml
 
     wait_for_service_timeout: 1000
     plugin_lib_names:
@@ -194,8 +194,8 @@ local_costmap:
 global_costmap:
   global_costmap:
     ros__parameters:
-      update_frequency: 1.0
-      publish_frequency: 1.0
+      update_frequency: 5.0
+      publish_frequency: 10.0           # 必须高于 update_frequency，相等时会隔一次才发（path_center_check 读的就是发布的这份）
       global_frame: map
       robot_base_frame: base_footprint
       use_sim_time: False
