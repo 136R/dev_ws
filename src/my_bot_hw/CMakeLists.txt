@@ -15,6 +15,10 @@ find_package(rclcpp REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(laser_geometry REQUIRED)
+find_package(tf2 REQUIRED)
+find_package(tf2_ros REQUIRED)
+find_package(tf2_geometry_msgs REQUIRED)
 
 add_library(${PROJECT_NAME} SHARED
   src/serial_utils.cpp
@@ -36,6 +40,11 @@ ament_target_dependencies(${PROJECT_NAME}
 )
 
 pluginlib_export_plugin_description_file(hardware_interface my_bot_hw_plugin.xml)
+
+# /scan 运动去畸变节点
+add_executable(scan_deskew_node src/scan_deskew_node.cpp)
+ament_target_dependencies(scan_deskew_node rclcpp sensor_msgs laser_geometry tf2 tf2_ros tf2_geometry_msgs)
+install(TARGETS scan_deskew_node DESTINATION lib/${PROJECT_NAME})
 
 install(
   DIRECTORY include/
@@ -61,6 +70,7 @@ install(PROGRAMS
   scripts/imu_gyro_deadband.py
   scripts/straight_drive_corrector.py
   scripts/lidar_diag.py
+  scripts/scan_time_fit.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

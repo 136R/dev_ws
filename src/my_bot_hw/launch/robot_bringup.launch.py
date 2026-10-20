@@ -3,7 +3,8 @@ import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, TimerAction
-from launch.substitutions import LaunchConfiguration, Command
+from launch.conditions import IfCondition
+from launch.substitutions import LaunchConfiguration, Command, PythonExpression
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 
@@ -21,9 +22,13 @@ def generate_launch_description():
         description='SLAMTEC C1 LiDAR serial port')
     use_sim_time_arg = DeclareLaunchArgument(
         'use_sim_time', default_value='false')
+    scan_deskew_arg = DeclareLaunchArgument(
+        'scan_deskew', default_value='true',
+        description='/scan 运动去畸变：true = /scan → /scan_deskewed → 滤波；false = 滤波直接吃 /scan')
     serial_port  = LaunchConfiguration('serial_port')
     lidar_port   = LaunchConfiguration('lidar_port')
     use_sim_time = LaunchConfiguration('use_sim_time')
+    scan_deskew  = LaunchConfiguration('scan_deskew')
 
     # ── Robot description ─────────────────────────────────────────
     # Reuse my_bot's robot.urdf.xacro with sim_mode:=false so it loads
@@ -124,7 +129,17 @@ def generate_launch_description():
         }]
     )
 
-    # 7. Laser filter: /scan (raw) → /scan_filtered (clean)
+    # 7a. 运动去畸变: /scan → /scan_deskewed（按每束真实采样时刻插值 odom 位姿，网格不变）
+    scan_deskew_node = Node(
+        package='my_bot_hw',
+        executable='scan_deskew_node',
+        name='scan_deskew',
+        output='screen',
+        parameters=[os.path.join(pkg_hw, 'config', 'scan_deskew.yaml')],
+        condition=IfCondition(scan_deskew),
+    )
+
+    # 7. Laser filter: /scan_deskewed（去畸变关闭时为 /scan）→ /scan_filtered (clean)
     # Applies range / speckle / angular-bounds filters before SLAM and Nav2
     laser_filter_node = Node(
         package='laser_filters',
@@ -133,7 +148,7 @@ def generate_launch_description():
         output='screen',
         parameters=[os.path.join(pkg_hw, 'config', 'laser_filters.yaml')],
         remappings=[
-            ('scan', '/scan'),
+            ('scan', PythonExpression(["'/scan_deskewed' if '", scan_deskew, "' == 'true' else '/scan'"])),
             ('scan_filtered', '/scan_filtered'),
         ]
     )
@@ -209,12 +224,14 @@ def generate_launch_description():
         serial_port_arg,
         lidar_port_arg,
         use_sim_time_arg,
+        scan_deskew_arg,
         rsp_node,
         ros2_control_node,
         joint_broad_spawner,
         imu_broad_spawner,
         diff_cont_spawner,
         lidar_node,
+        scan_deskew_node,
         laser_filter_node,
         twist_mux_node,
         odom_relay_node,

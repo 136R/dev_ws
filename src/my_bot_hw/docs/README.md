@@ -17,6 +17,7 @@ ros2_control_node              ← 加载 Stm32SerialHardware 插件
   ├─ imu_broad     (延迟②)     → /imu_broad/imu
   └─ diff_cont     (延迟③)     → /diff_cont/odom
 sllidar_node                   → /scan           （思岚 C1）
+scan_deskew                    /scan + TF → /scan_deskewed（运动去畸变，scan_deskew:=false 时不起）
 laser_filter                   → /scan_filtered
 twist_mux                      → /diff_cont/cmd_vel_unstamped
 odom_relay                     /diff_cont/odom → /odom
@@ -42,6 +43,7 @@ STM32F303 ←─ UART /dev/ttyS7 ─→ Stm32SerialHardware
 | **`diff_cont` 不发 TF，TF 由 EKF 发** | 两处都发 → `odom→base_footprint` 打架 | `hw_controllers.yaml` 的 `enable_odom_tf`；`ekf_hw.yaml` 的 `publish_tf` |
 | **全链路同频**（STM32 控制环 / controller_manager / EKF） | 改其中一个而不改其余 → 时序错配 | 三处必须相等：`robot_config.h` 的 `CONTROL_FREQ_HZ`、`hw_controllers.yaml` 的 `update_rate`、`ekf_hw.yaml` 的 `frequency` |
 | **`sensor_timeout` 必须 ≥ 2×(1/传感器频率)** | EKF 因单帧丢失就丢弃该数据源 | `ekf_hw.yaml` 的 `sensor_timeout`，对照上一行的传感器频率算 |
+| **`/scan` 帧内时间是倒序的，且 `header.stamp` 不是第一束的时刻** | 按 `stamp + i·time_increment` 做逐点去畸变，畸变反向加倍；`scan_deskew.yaml` 的偏移不对，转动时墙面错位 | `scan_deskew.yaml` 的 `time_offset` / `reverse_order`（实测标定值）；换雷达 / `scan_mode` / `angle_compensate` 要用 `scan_time_fit.py` 重标 |
 | **雷达波特率与底盘串口不同，别照抄** | `/scan` 无数据 | `robot_bringup.launch.py` 的 `serial_baudrate`（思岚 C1 专用值） |
 | **`straight_drive_corrector` 目前是关闭的** | 别以为它在生效 | `robot_bringup.launch.py` 里整段被注释 |
 | **控制器分四级延迟启动** | 起完 launch 立刻发指令会丢 | `robot_bringup.launch.py` 的 `TimerAction`，EKF 必须等 imu_broad 就绪 |

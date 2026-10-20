@@ -1,0 +1,11 @@
+# /scan 运动去畸变（scan_deskew_node）。开关：robot_bringup.launch.py 的 scan_deskew:=true/false
+# 每束真实采样时刻 t_i = stamp + time_offset + (M-1-i)·time_increment（reverse_order=true）
+# 数值来源：scan_time_fit.py 实机标定，2026-10-20 两次采集 倒序 +30 / +34 ms → 取 0.032。
+# ⚠ 换雷达 / scan_mode / angle_compensate、或驱动时间戳逻辑变了，必须重新标定：
+#   录 /scan + /tf + /tf_static（停—转—停—直行交替）→ scan_time_fit.py fit <bag>
+scan_deskew:
+  ros__parameters:
+    fixed_frame: odom        # 插值用的固定系（EKF 发的 odom，偏航来自 IMU）
+    time_offset: 0.032       # 本帧最早一束相对 header.stamp 的时刻（s）
+    reverse_order: true      # 驱动倒序写 ranges：序号越大越早测到
+    tf_wait: 0.1             # 等最晚一束时刻的 TF 最多多久（s），等不到就原样转发
