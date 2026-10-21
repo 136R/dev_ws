@@ -25,8 +25,8 @@ diff_cont:
     wheel_radius: 0.035       # m，名义值
 
     # 2026-08-13 标定值，方法见 docs/里程计与雷达标定.md；左右轮径比只能整体缩放
-    left_wheel_radius_multiplier: 0.94788
-    right_wheel_radius_multiplier: 0.95026
+    left_wheel_radius_multiplier: 0.94693
+    right_wheel_radius_multiplier: 0.95121
     # 只影响 /diff_cont/odom 的 yaw 和 cmd_vel 逆解；EKF 航向来自 IMU，标定须读 /diff_cont/odom
     wheel_separation_multiplier: 0.95209
     use_stamped_vel: false
