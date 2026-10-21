@@ -2,7 +2,7 @@ ekf_filter_node:
   ros__parameters:
     use_sim_time: true
     frequency: 100.0
-    transform_time_offset: 0.04 # TF发布允许延迟
+    transform_time_offset: 0.0 # 0.04 会让 TF 在 1.6 rad/s 转动时落后 ~4.6°（2026-10-19 调参记录）
     sensor_timeout: 0.08
     two_d_mode: true
 

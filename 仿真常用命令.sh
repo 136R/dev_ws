@@ -27,10 +27,10 @@ ros2 launch my_bot_slam slam.launch.py use_sim_time:=true mode:=localization
 # 3 rviz2
 ros2 run rviz2 rviz2 --ros-args -p use_sim_time:=true
 # 4 nav2
-ros2 launch my_bot_nav nav.launch.py use_sim_time:=true
+ros2 launch my_bot_nav nav.launch.py use_sim_time:=true controller:=rpp path_valid_service:=/path_center_check
 ros2 launch my_bot_nav nav.launch.py use_sim_time:=true controller:=neupan
 ros2 launch my_bot_nav nav.launch.py use_sim_time:=true \
-  params_file:=/home/bingda/dev_ws/src/my_bot_nav/config/sim/nav2_params_neupan_smac2d.yaml
+  params_file:=/home/bingda/dev_ws/src/my_bot_nav/config/sim/nav2_params_neupan_smac2d.yaml path_valid_service:=/path_center_check
 ros2 launch my_bot_nav nav.launch.py use_sim_time:=true map:=my_world_8m \
   params_file:=/home/bingda/dev_ws/src/my_bot_nav/config/sim/nav2_params_neupan_smac2d.yaml
 # 单独起禁行区流水线（一般不用，nav.launch.py 已包含）

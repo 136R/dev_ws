@@ -1,7 +1,8 @@
 """Keepout 禁行区流水线（Nav2 标准 Costmap Filter 架构）。
 
 app 后端把"原图 + 画笔"存成 `~/.maps/<name>/<name>.pgm`。这张图可以**原样**当掩码用：
-KeepoutFilter 是 max 语义（只升不降），所以图里的原始墙体与 static_layer 重合、无副作用；
+KeepoutFilter 是 max 语义（只升不降），所以图里的原始墙体与全局图的 static_layer 重合、无副作用；
+局部图没有 static_layer，墙会被叠成比真墙胖的致命格，所以 neupan_smac2d 的局部图不加载 keepout_filter；
 空闲格(0) 不会擦除 obstacle_layer 探到的动态障碍；未知格(-1) 直接跳过。
 因此不需要"编辑图减干净图"的桥接节点，直接喂给标准 filter_mask_server 即可。
 

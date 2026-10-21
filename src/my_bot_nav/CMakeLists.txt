@@ -22,6 +22,8 @@ install(PROGRAMS
   scripts/path_center_check.py
   scripts/plan_curvature.py
   scripts/plan_sweep.py
+  scripts/neupan_sweep.py
+  scripts/nav_lap_report.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

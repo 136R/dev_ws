@@ -49,7 +49,8 @@
                     <min>0.1</min>
                     <max>8.0</max>
                 </range>
-                <!-- 测距高斯噪声。stddev 取 C1 标称精度 ±30mm 的数值 0.03。
+                <!-- 测距高斯噪声。C1 标称 ±30mm 是误差上限不是 σ（0.03 会把墙画成 2~3 格厚）；
+                     取 0.005，略高于 spec 记录的实机静止 σ（中位 2.1mm，未复核）。
                      ⚠️ 两个 Gazebo 限制，别拿仿真结果外推实机：
                      1) stddev 是常数，不随距离变化 —— 真实雷达远点误差更大，
                         所以「8m 量程会不会让定位变差」这件事仿真验不出来，只能上实机；
@@ -59,7 +60,7 @@
                 <noise>
                     <type>gaussian</type>
                     <mean>0.0</mean>
-                    <stddev>0.002</stddev>
+                    <stddev>0.005</stddev>
                 </noise>
             </lidar>
         </sensor>

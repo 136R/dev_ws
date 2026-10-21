@@ -13,6 +13,7 @@
     --sets '[{"inflation_layer.inflation_radius":0.20},{"inflation_layer.inflation_radius":0.22}]'
   ros2 run my_bot_nav plan_sweep.py --sets '[{}]' --goals '[[1.6,0.8],[0.0,-1.75]]' --start 0,0.27
   ros2 run my_bot_nav plan_sweep.py --sets '[{}]' --world ~/dev_ws/src/my_bot/worlds/my_world_40.sdf
+  ros2 run my_bot_nav plan_sweep.py --sets '[{}]' --goals '[[1.75,0.0]]' --save-plans /tmp/plans   # 存路线给离线仿真
 --sets 里每组是 {参数名: 值}，{} = 用当前值；--start 不给就从机器人当前位置规划。
 """
 import argparse
@@ -144,6 +145,7 @@ def main():
     ap.add_argument("--world", default="", help="sdf 路径；给了就额外按真实墙面算离墙（仅仿真）")
     ap.add_argument("--wait", type=float, default=3.0, help="改参数后等代价地图重新膨胀的秒数")
     ap.add_argument("--out", default="", help="把每个点的结果写到这个 JSON 文件")
+    ap.add_argument("--save-plans", default="", help="目录；把每条路线存成 JSON（离线仿真 neupan_sweep.py 的参考路线）")
     a = ap.parse_args()
     sets, goals = json.loads(a.sets), json.loads(a.goals)
     start = tuple(map(float, a.start.split(","))) if a.start else None
@@ -157,13 +159,18 @@ def main():
     orig = n.get_params(keys) if keys else {}
     print("运行前的值:", orig, flush=True)
     out = []
+    if a.save_plans:
+        os.makedirs(a.save_plans, exist_ok=True)
     try:
-        for s in sets:
+        for si, s in enumerate(sets):
             ok = n.set_params(s)
             time.sleep(a.wait)
             rows = []
             for gx, gy in goals:
                 p, pt = n.plan((gx, gy), start)
+                if a.save_plans and p:
+                    f = f"s{si}_{p[0][0]:.2f}_{p[0][1]:.2f}__{gx:.2f}_{gy:.2f}.json"
+                    json.dump(dict(set=s, start=p[0], goal=(gx, gy), path=p), open(os.path.join(a.save_plans, f), "w"))
                 row = dict(goal=(gx, gy), ok=bool(p), plan_ms=round(pt * 1000, 1))
                 if p:
                     row["len"], row["turn"] = path_metrics(p)

@@ -1,6 +1,6 @@
 <!--
   同 navigate_to_pose_replan_on_invalid.xml，只是每秒检查 5 次（原版 1 次）：旧路线没被挡且目标没变就保留，
-  否则才重新规划。检查得勤，新障碍挡路后更快换路线。
+  否则才重新规划。检查得勤，新障碍挡路后更快换路线。另外路线保留满 4 s 也强制重规划一次。
 -->
 <root main_tree_to_execute="MainTree">
   <BehaviorTree ID="MainTree">
@@ -11,6 +11,10 @@
             <ReactiveSequence name="KeepPathIfValid">
               <Inverter>
                 <GlobalUpdatedGoal/>
+              </Inverter>
+              <!-- 路线 4 s 没换过就强制重规划一次 -->
+              <Inverter>
+                <PathExpiringTimer seconds="4.0" path="{path}"/>
               </Inverter>
               <IsPathValid path="{path}" server_timeout="100"/>
             </ReactiveSequence>

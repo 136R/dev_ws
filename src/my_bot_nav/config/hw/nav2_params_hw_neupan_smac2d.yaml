@@ -1,7 +1,5 @@
 # 全局: SmacPlanner2D (nav2_smac_planner/SmacPlanner2D)
 # 局部: NeuPAN (nav2_core::Controller 插件, neupan_cpp_ros::NeuPANController)
-#
-# 障碍来源为 local costmap (含静态+动态+keepout 禁行区)。
 
 bt_navigator:
   ros__parameters:
@@ -13,10 +11,7 @@ bt_navigator:
     default_server_timeout: 20
 
     # 全局规划器更新频率 与 行为恢复
-    # 用 smac2d 专用 BT（去掉了 SmoothPath，平滑全交给 SmacPlanner2D 内置 Smoother）。
-    # 另外 4 份配置(sim rpp/neupan + hw rpp/neupan)仍用 navigate_to_pose_custom.xml —— 它们
-    # 是 ThetaStar，没有内置平滑器，SmoothPath 是唯一的平滑环节，不能删。
-    default_nav_to_pose_bt_xml: /home/orangepi/dev_ws/src/my_bot_nav/config/common/bt/navigate_to_pose_smac2d.xml
+    default_nav_to_pose_bt_xml: /home/orangepi/dev_ws/src/my_bot_nav/config/common/bt/navigate_to_pose_replan_on_invalid_5hz.xml
 
     wait_for_service_timeout: 1000
     plugin_lib_names:
@@ -108,22 +103,22 @@ controller_server:
     FollowPath:
       plugin: "nav2_rotation_shim_controller::RotationShimController"
       primary_controller: "neupan_cpp_ros::NeuPANController"
-      angular_dist_threshold: 1.047   # 60°；超过此偏差才原地转，小偏差仍交给 NeuPAN 用弧线自然纠正
-      forward_sampling_distance: 0.5     # 沿路径前探 0.5m 取参考点算"该往哪转"，而非只看第一个点
-      rotate_to_heading_angular_vel: 1.2 # 原地转的角速度(rad/s)；相对 NeuPAN 避障时的瞬时急转更保守
+      angular_dist_threshold: 1.047      # 超过此偏差才原地转，小偏差仍交给 NeuPAN 用弧线自然纠正
+      forward_sampling_distance: 0.1     # 沿路径前探 m 取参考点算"该往哪转"，而非只看第一个点
+      rotate_to_heading_angular_vel: 1.6 # 原地转的角速度(rad/s)；相对 NeuPAN 避障时的瞬时急转更保守
       max_angular_accel: 2.4             # 对齐 velocity_smoother 的 max_accel/max_decel theta，避免被削波变卡顿
-      simulate_ahead_time: 1.0           # 原地转前用 costmap 模拟这段时间内是否会撞（shim 自带碰撞检测）
+      simulate_ahead_time: 0.0           # 0 = 关掉 shim 的原地转碰撞预测：窄走廊里车头朝墙时它会提前拦下、交给 NeuPAN 后死锁（2026-10-21 诊断）
       rotate_to_goal_heading: false      # 终点朝向不约束，沿用 yaw_goal_tolerance: 6.28 的既有设定
 
       # —— 以下为 primary_controller(NeuPAN) 自身参数，与 shim 参数平铺在同一 FollowPath 命名空间 ——
       config_package: "my_bot_nav"                             # 相对路径按此包 share 解析
-      config_file: "config/hw/neupan_hw.yaml"               # NeuPAN 规划器调参 (与模型几何一致)
+      config_file: "config/sim/neupan_sim.yaml"               # NeuPAN 规划器调参 (与模型几何一致)
       dune_checkpoint: "config/common/neupan/diff_mybot.bin"  # 用户自训模型
       map_frame: "map"
       base_frame: "base_footprint"
       include_initial_path_direction: false   # 参考朝向由路径点梯度推断
       cost_threshold: 254                      # >= 此代价的栅格视为障碍 (LETHAL=254, INSCRIBED=253)
-      obstacle_stride: 2                       # 栅格抽稀步长 (1=全取; 增大可降负载)
+      obstacle_stride: 1                       # 栅格抽稀步长 (1=全取)。2 只取四分之一的格子，一格厚的墙面可能整条看不见
 
 local_costmap:
   local_costmap:
@@ -136,24 +131,13 @@ local_costmap:
       rolling_window: true
       width: 3
       height: 3
-      resolution: 0.05
+      resolution: 0.025                 # NeuPAN 拿致命格中心当障碍点，格子越粗位置误差越大（5cm 格最多 3.5cm）
 
-      # 车体外廓 = 圆盘 ∪ 两个驱动轮，不是单纯的圆：
-      #   圆盘   以 (-0.047, 0) 为心、r=0.11（base_link 在圆心前方 0.047，故 robot_radius 画不出来）
-      #   驱动轮 俯视是矩形 x∈[-0.035, 0.035]、|y|∈[0.082, 0.11]（轮 r=0.035、厚 0.028、轴距中心 0.096）
-      # ⚠️ 轮子必须单独算进来：圆盘在 x=0 处的半宽只有 √(0.11²-0.047²)=0.0995，而轮外沿在 0.11
-      #    —— 轮子在此突出盘缘 10.5 mm。
-      #    2026-08-12 修复：旧值只按「圆盘 + 余量」取正 12 边形，导致轮子前外角 (0.035, 0.11)
-      #    露在 footprint 外 10.2 mm。改这个数时务必把轮子四角一起验，不要只验圆盘。
-      # 现值：对 12 个方向取「外廓支撑函数 + 0.020 余量」的外切多边形，全部关键点余量均匀 20 mm。
-      #      四个主轴方向与旧值完全相同（前 0.083 / 后 -0.177 / 侧 ±0.13），只在轮子所在斜向外扩。
-      # 注：本文件余量沿用 0.020，与同目录 hw_rpp / hw_neupan 的 0.025 不同 —— 这是几何同步之前
-      #    就存在的既有差异，不在本次修复范围内。
-      # 裸外廓（无余量）备查：
-      # footprint: "[[0.063, 0.0615], [0.035, 0.11], [-0.0765, 0.11], [-0.1275, 0.0805], [-0.157, 0.0295], [-0.157, -0.0295], [-0.1275, -0.0805], [-0.0765, -0.11], [0.035, -0.11], [0.063, -0.0615]]"
+
       footprint: "[[0.083, 0.0669], [0.0496, 0.1246], [0.0404, 0.13], [-0.0818, 0.13], [-0.1422, 0.0952], [-0.177, 0.0348], [-0.177, -0.0348], [-0.1422, -0.0952], [-0.0818, -0.13], [0.0404, -0.13], [0.0496, -0.1246], [0.083, -0.0669]]"
 
-      plugins: ["obstacle_layer", "keepout_filter", "inflation_layer"]
+      # plugins: ["obstacle_layer", "keepout_filter", "inflation_layer"]
+      plugins: ["obstacle_layer", "inflation_layer"]
       keepout_filter:
         plugin: "nav2_costmap_2d::KeepoutFilter"
         enabled: True
@@ -165,6 +149,7 @@ local_costmap:
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
         enabled: True
+        footprint_clearing_enabled: False
         observation_sources: scan
         scan:
           topic: /scan_filtered
@@ -188,26 +173,14 @@ local_costmap:
 global_costmap:
   global_costmap:
     ros__parameters:
-      update_frequency: 1.0
-      publish_frequency: 1.0
+      update_frequency: 5.0
+      publish_frequency: 10.0           # 必须高于 update_frequency，相等时会隔一次才发（path_center_check 读的就是发布的这份）
       global_frame: map
       robot_base_frame: base_footprint
       use_sim_time: False
 
-      # 车体外廓 = 圆盘 ∪ 两个驱动轮，不是单纯的圆：
-      #   圆盘   以 (-0.047, 0) 为心、r=0.11（base_link 在圆心前方 0.047，故 robot_radius 画不出来）
-      #   驱动轮 俯视是矩形 x∈[-0.035, 0.035]、|y|∈[0.082, 0.11]（轮 r=0.035、厚 0.028、轴距中心 0.096）
-      # ⚠️ 轮子必须单独算进来：圆盘在 x=0 处的半宽只有 √(0.11²-0.047²)=0.0995，而轮外沿在 0.11
-      #    —— 轮子在此突出盘缘 10.5 mm。
-      #    2026-08-12 修复：旧值只按「圆盘 + 余量」取正 12 边形，导致轮子前外角 (0.035, 0.11)
-      #    露在 footprint 外 10.2 mm。改这个数时务必把轮子四角一起验，不要只验圆盘。
-      # 现值：对 12 个方向取「外廓支撑函数 + 0.020 余量」的外切多边形，全部关键点余量均匀 20 mm。
-      #      四个主轴方向与旧值完全相同（前 0.083 / 后 -0.177 / 侧 ±0.13），只在轮子所在斜向外扩。
-      # 注：本文件余量沿用 0.020，与同目录 hw_rpp / hw_neupan 的 0.025 不同 —— 这是几何同步之前
-      #    就存在的既有差异，不在本次修复范围内。
-      # 裸外廓（无余量）备查：
-      # footprint: "[[0.063, 0.0615], [0.035, 0.11], [-0.0765, 0.11], [-0.1275, 0.0805], [-0.157, 0.0295], [-0.157, -0.0295], [-0.1275, -0.0805], [-0.0765, -0.11], [0.035, -0.11], [0.063, -0.0615]]"
       footprint: "[[0.083, 0.0669], [0.0496, 0.1246], [0.0404, 0.13], [-0.0818, 0.13], [-0.1422, 0.0952], [-0.177, 0.0348], [-0.177, -0.0348], [-0.1422, -0.0952], [-0.0818, -0.13], [0.0404, -0.13], [0.0496, -0.1246], [0.083, -0.0669]]"
+      footprint_padding: 0.065           # 内切半径 0.083→0.143：路线离细墙墙头远一点，NeuPAN 边走边转时车尾不扫墙头（0.05 时 0.133，会蹭）
 
       resolution: 0.05
       track_unknown_space: true
@@ -222,13 +195,7 @@ global_costmap:
           clearing: True
           marking: True
           data_type: "LaserScan"
-          # 同 local_costmap 的说明。全局层这条更要紧：动态障碍(人)被标进全局图后
-          # 若清不掉，SmacPlanner2D 会一直绕着一个【已经走开的人】规划，"绕路比"就是
-          # 这么来的。global 只有 1Hz 更新，残留一次就要多绕好几秒。
           inf_is_valid: true
-          # 全局层负责【选路线】，探测距离要够跨一个房间才能提前改道。
-          # raytrace 要显著大于 obstacle：本层只有 1Hz，人走 1.2m/s 时标记天然滞后，
-          # 清除范围留余量才追得上，否则人走了标记还在 → 绕着不存在的障碍规划。
           raytrace_max_range: 8.0
           raytrace_min_range: 0.0
           obstacle_max_range: 7.0
@@ -243,7 +210,7 @@ global_costmap:
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 3.5
-        inflation_radius: 0.2
+        inflation_radius: 0.20
       always_send_full_costmap: True
 
 # Keepout 禁行区滤波信息服务（随 keepout.launch.py 启动）
@@ -277,14 +244,7 @@ planner_server:
     # 插件名保持 "GridBased" 不变——BT 里 ComputePathToPose 的 planner_id="GridBased" 才对得上
     GridBased:
       plugin: "nav2_smac_planner/SmacPlanner2D"
-      # 到不了精确目标时, 可接受的退让距离(m)。原为 0.05(仅 1 格) —— 等于要求目标格
-      # 必须精确可通行, 一旦动态障碍压上目标就直接 "no valid path found" 整个导航失败。
-      # 2026-07-22 实测: 移动障碍压住目标 (-2.97,1.52) 时该格 cost=254, 需 >=0.10m 才
-      # 够得着; 0.125 只剩半格余量, 故取 0.25(5 格)。
-      # 调大无实质代价: goal_checker 的 xy_goal_tolerance=0.05 独立判定是否到达, 规划
-      # 终点退让不会让机器人误以为到点, 它会开过去→发现没到→继续重规划, 等障碍走开后
-      # 自然收敛到真目标。
-      tolerance: 0.25
+      tolerance: 0.15
       downsample_costmap: false         # 不降采样 costmap（分辨率已 0.05，够用）
       downsampling_factor: 1
       allow_unknown: true               # 允许穿未知区域（track_unknown_space=true，避免局部无解）
@@ -294,9 +254,8 @@ planner_server:
       cost_travel_multiplier: 2.5       # 通过代价权重：越大越偏好远离障碍的低代价栅格（离障余量↑）
       use_final_approach_orientation: false
       smoother:                         # SmacPlanner2D 自带的路径平滑。现在是唯一的平滑环节
-                                        # ——BT 已换成 navigate_to_pose_smac2d.xml，没有 SmoothPath 了。
         max_iterations: 1000
-        w_smooth: 0.1                   # 平滑项权重（越大越平滑，可能偏离原路径）
+        w_smooth: 0.4                   # 平滑项权重（越大越平滑，可能偏离原路径）；>0.6 平滑器失控
         w_data: 0.5                     # 贴合原始路径权重
         tolerance: 1.0e-10
 
@@ -356,11 +315,11 @@ velocity_smoother:
     smoothing_frequency: 20.0
     scale_velocities: False
     feedback: "OPEN_LOOP"
-    max_velocity: [0.37, 0.0, 3.2]
-    min_velocity: [-0.37, 0.0, -3.2]
-    max_accel: [1.1, 0.0, 2.5]
-    max_decel: [-1.1, 0.0, -2.5]
-    odom_topic: "odom"
+    max_velocity: [0.4, 0.0, 3.2]
+    min_velocity: [-0.4, 0.0, -3.2]
+    max_accel: [1.6, 0.0, 2.4]
+    max_decel: [-1.6, 0.0, -2.4]
+    odom_topic: "/odometry/filtered"
     odom_duration: 0.1
     deadband_velocity: [0.0, 0.0, 0.0]
     velocity_timeout: 1.0
