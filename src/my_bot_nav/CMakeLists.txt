@@ -32,6 +32,7 @@ install(
 
 install(PROGRAMS
   scripts/keepout_mask_reloader.py
+  scripts/keepout_files.py
   scripts/loc_error_test.py
   scripts/map_eval.py
   scripts/map_group.sh

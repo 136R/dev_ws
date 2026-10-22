@@ -10,6 +10,8 @@ install(
 
 install(PROGRAMS
   scripts/save_map.sh
+  scripts/map_resolve.py
+  scripts/slam_map_switcher.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

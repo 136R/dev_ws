@@ -225,6 +225,7 @@ class TaskManager(Node):
         self.battery_stale = True     # 没数据 = 失联，而失联一律【失效开放】
         self.low_battery = False      # 低电锁存：拒绝新召唤 + 到家后停 STOPPED
         self.battery_critical = False # 物理地板：就地停，连归位都不再尝试
+        self.map_switched = False     # app 切了图：旧坐标全作废，停住等下一次召唤（用户已重定位）
         self.low_since = None         # 连续低于 low_voltage 的起点（去抖用）
         self.resume_since = None      # 连续高于 resume_voltage 的起点
         self.override_until = None    # 人工覆盖到期时刻
@@ -493,6 +494,8 @@ class TaskManager(Node):
     def _poll_topology(self):
         path = self._topology_file()
         if path != self.topology_path:      # 用户在 app 上换了地图
+            if self.topology_path:          # 启动后第一次拿到地图不算切图
+                self._halt_for_map_switch()
             self.topology_path = path
             self.seen_mtime = 0.0
         now = self._mtime(path)
@@ -582,6 +585,7 @@ class TaskManager(Node):
     # ================= 召唤入口 =================
 
     def _on_goal(self, msg: PoseStamped):
+        self.map_switched = False           # 切图后的第一次召唤 = 用户已重定位，恢复接单
         x, y = msg.pose.position.x, msg.pose.position.y
         theta = yaw_from_quat(msg.pose.orientation)
 
@@ -652,10 +656,30 @@ class TaskManager(Node):
 
     # ================= 状态机 =================
 
+    def _halt_for_map_switch(self):
+        """切图：队列和当前目标都是旧图坐标，全部作废。停住不归位 —— 待命点也是旧图坐标，
+        而且车在新图里的位置要等用户重定位。下一次召唤（_on_goal）恢复接单。"""
+        dropped = len(self.queue)
+        self.queue.clear()
+        self.map_switched = True
+        self.tf_home = None
+        if self.goal_handle is not None:
+            self.goal_handle.cancel_goal_async()   # 迟到的 CANCELED 回调进 _advance，被 map_switched 拦住
+        self._clear_retry()
+        self._clear_dwell()
+        self.last_error = f'已切换地图，任务已取消（丢弃 {dropped} 个待办）—— 请在 app 上重定位'
+        self.get_logger().warn(self.last_error)
+        self._enter(STOPPED)
+
     def _advance(self):
         """一件事做完了 —— 决定下一步。"""
         self._clear_dwell()
         self.retries = 0
+
+        if self.map_switched:
+            self.queue.clear()
+            self._enter(STOPPED)
+            return
 
         # 电压塌到地板了 —— 就地停，连回家都不试（保险 1）。
         # 放在最前面是因为 _cancel_active() 的 CANCELED 回调也会走到这里，

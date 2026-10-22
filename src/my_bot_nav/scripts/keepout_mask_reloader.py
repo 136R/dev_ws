@@ -6,6 +6,8 @@ filter_mask_server 只在启动时加载一次 yaml。app 上重新画完禁行�
 就调 /filter_mask_server/load_map 把新掩码热加载进去，不用重启任何节点。
 
 轮询的是磁盘文件，所以只有"点了保存"才会触发；在网页上画的过程中磁盘没动，Nav2 不受影响。
+
+follow_current_map=true 时还盯 ~/.maps/current_map：app 上切图 → 加载新图的掩码（没有就生成空的），之后改盯新图。
 """
 
 import os
@@ -13,6 +15,8 @@ import os
 import rclpy
 from nav2_msgs.srv import LoadMap
 from rclpy.node import Node
+
+from keepout_files import MAPS_ROOT, ensure_keepout
 
 
 class KeepoutMaskReloader(Node):
@@ -23,12 +27,16 @@ class KeepoutMaskReloader(Node):
         self.declare_parameter('service_name', '/filter_mask_server/load_map')
         # 保存写 pgm 可能分多次落盘，等文件静默这么久再加载，避免读到写了一半的图
         self.declare_parameter('settle_sec', 0.5)
+        self.declare_parameter('map_name', '')
+        self.declare_parameter('follow_current_map', False)
 
         self.mask_yaml = self.get_parameter('mask_yaml').value
         if not self.mask_yaml:
             raise RuntimeError('必须指定 mask_yaml 参数')
         self.mask_pgm = os.path.splitext(self.mask_yaml)[0] + '.pgm'
         self.settle = float(self.get_parameter('settle_sec').value)
+        self.map_name = self.get_parameter('map_name').value
+        self.follow = bool(self.get_parameter('follow_current_map').value)
 
         self.client = self.create_client(
             LoadMap, self.get_parameter('service_name').value)
@@ -52,6 +60,8 @@ class KeepoutMaskReloader(Node):
     def _poll(self):
         if self.inflight:
             return
+        if self.follow and self._follow_switch():
+            return
         now = self._mtime()
         if now == 0.0 or now == self.seen:
             return
@@ -64,8 +74,34 @@ class KeepoutMaskReloader(Node):
                 f'{self.client.srv_name} 还没就绪，稍后重试', throttle_duration_sec=10.0)
             return
 
-        self.seen, self.pending, self.inflight = now, None, True
         self.get_logger().info('画笔有改动 → 热加载掩码')
+        self._load(now)
+
+    def _follow_switch(self) -> bool:
+        """current_map 换了 → 改盯新图的掩码并立刻加载。返回 True 表示本周期已处理。"""
+        try:
+            with open(os.path.join(MAPS_ROOT, 'current_map')) as f:
+                name = f.read().strip()
+        except OSError:
+            return False
+        if not name or name == self.map_name:
+            return False
+        try:
+            mask_yaml = ensure_keepout(name)
+        except (OSError, KeyError, ValueError, IndexError) as exc:
+            self.get_logger().error(f'切到 "{name}" 的禁行区失败: {exc}', throttle_duration_sec=30.0)
+            return False
+        if not self.client.service_is_ready():
+            return True                 # 下个周期再试（map_name 还没更新）
+        self.mask_yaml = mask_yaml
+        self.mask_pgm = os.path.splitext(mask_yaml)[0] + '.pgm'
+        self.get_logger().info(f'app 切图 "{self.map_name}" → "{name}"，加载其禁行区')
+        self.map_name = name
+        self._load(self._mtime())
+        return True
+
+    def _load(self, mtime):
+        self.seen, self.pending, self.inflight = mtime, None, True
         req = LoadMap.Request()
         req.map_url = self.mask_yaml
         self.client.call_async(req).add_done_callback(self._done)
