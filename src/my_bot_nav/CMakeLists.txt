@@ -3,6 +3,28 @@ project(my_bot_nav)
 
 find_package(ament_cmake REQUIRED)
 
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+find_package(rclcpp REQUIRED)
+find_package(rclcpp_lifecycle REQUIRED)
+find_package(pluginlib REQUIRED)
+find_package(nav2_core REQUIRED)
+find_package(nav2_costmap_2d REQUIRED)
+find_package(nav2_util REQUIRED)
+find_package(nav_msgs REQUIRED)
+find_package(geometry_msgs REQUIRED)
+find_package(tf2 REQUIRED)
+
+# 全局规划器外壳：包住 SmacPlanner2D，等价路线不来回换
+add_library(sticky_planner SHARED src/sticky_planner.cpp)
+ament_target_dependencies(sticky_planner
+  rclcpp rclcpp_lifecycle pluginlib nav2_core nav2_costmap_2d nav2_util nav_msgs geometry_msgs tf2)
+pluginlib_export_plugin_description_file(nav2_core sticky_planner_plugin.xml)
+install(TARGETS sticky_planner
+  ARCHIVE DESTINATION lib
+  LIBRARY DESTINATION lib
+  RUNTIME DESTINATION bin)
+
 install(
   DIRECTORY config docs launch
   DESTINATION share/${PROJECT_NAME}

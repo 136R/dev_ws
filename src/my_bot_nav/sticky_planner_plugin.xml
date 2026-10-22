@@ -1,0 +1,8 @@
+<library path="sticky_planner">
+  <class type="my_bot_nav::StickyPlanner" base_class_type="nav2_core::GlobalPlanner">
+    <description>
+      全局规划器外壳：里面用 primary_planner 算新路线，只有目标变了、车偏离旧路线、
+      旧路线被挡或新路线明显更好时才换，避免空旷处等价路线被重规划来回换。
+    </description>
+  </class>
+</library>

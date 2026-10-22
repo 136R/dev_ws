@@ -15,7 +15,10 @@
   ros2 run my_bot_nav plan_sweep.py --sets '[{}]' --goals '[[1.6,0.8],[0.0,-1.75]]' --start 0,0.27
   ros2 run my_bot_nav plan_sweep.py --sets '[{}]' --world ~/dev_ws/src/my_bot/worlds/my_world_40.sdf
   ros2 run my_bot_nav plan_sweep.py --sets '[{}]' --goals '[[1.75,0.0]]' --save-plans /tmp/plans   # 存路线给离线仿真
+  ros2 run my_bot_nav plan_sweep.py --sets '[{}]' --goals '[[1.6,0.0]]' --start=-1.6,0 --walk 0.4   # 沿路线走一段重规划一次，数换线
 --sets 里每组是 {参数名: 值}，{} = 用当前值；--start 不给就从机器人当前位置规划。
+--walk STEP：模拟行驶中的定时重规划（车不动）—— 沿当前路线前进 STEP 米，从路线上那一点对同一目标重规划，
+新路线离旧路线剩余部分最远超过 --walk-thr 记一次"换线"，一直走到离终点不足 STEP。
 """
 import argparse
 import json
@@ -125,6 +128,35 @@ def path_metrics(p):
     return length, math.degrees(turn)
 
 
+def seg_dist(x, y, a, b):
+    dx, dy = b[0] - a[0], b[1] - a[1]
+    L2 = dx * dx + dy * dy
+    u = 0.0 if L2 == 0 else max(0.0, min(1.0, ((x - a[0]) * dx + (y - a[1]) * dy) / L2))
+    return math.hypot(x - a[0] - u * dx, y - a[1] - u * dy)
+
+
+def walk(n, goal, start, step, thr):
+    """沿路线每前进 step 米从路线上重规划一次；返回每次新路线离旧路线剩余部分的最远距离。"""
+    p, _ = n.plan(goal, start)
+    if not p:
+        return dict(goal=goal, ok=False)
+    amps = []
+    while True:
+        cum, k = 0.0, 0
+        while k + 1 < len(p) and cum < step:
+            cum += math.hypot(p[k + 1][0] - p[k][0], p[k + 1][1] - p[k][1])
+            k += 1
+        rest = p[k:]
+        if sum(math.hypot(b[0] - a[0], b[1] - a[1]) for a, b in zip(rest, rest[1:])) < step:
+            break
+        q, _ = n.plan(goal, rest[0])
+        if not q:
+            return dict(goal=goal, ok=False, amps=amps)
+        amps.append(max(min(seg_dist(x, y, a, b) for a, b in zip(rest, rest[1:])) for x, y in q))
+        p = q
+    return dict(goal=goal, ok=True, amps=amps, switches=sum(a > thr for a in amps))
+
+
 class Sweeper(Node):
     def __init__(self):
         super().__init__("plan_sweep")
@@ -201,6 +233,8 @@ def main():
     ap.add_argument("--wait", type=float, default=3.0, help="改参数后等代价地图重新膨胀的秒数")
     ap.add_argument("--out", default="", help="把每个点的结果写到这个 JSON 文件")
     ap.add_argument("--save-plans", default="", help="目录；把每条路线存成 JSON（离线仿真 neupan_sweep.py 的参考路线）")
+    ap.add_argument("--walk", type=float, default=0.0, help="米；>0 时改为沿路线走一段重规划一次，数换线（见文件头）")
+    ap.add_argument("--walk-thr", type=float, default=0.10, help="米；新旧路线最远差超过它算一次换线")
     a = ap.parse_args()
     sets, goals = json.loads(a.sets), json.loads(a.goals)
     start = tuple(map(float, a.start.split(","))) if a.start else None
@@ -221,6 +255,16 @@ def main():
             ok = n.set_params(s)
             time.sleep(a.wait)
             rows = []
+            if a.walk > 0:
+                for gx, gy in goals:
+                    r = walk(n, (gx, gy), start, a.walk, a.walk_thr)
+                    amps = r.get("amps", [])
+                    print(f"{json.dumps(s)} 目标 ({gx},{gy}): {'成功' if r['ok'] else '规划失败'}  重规划 {len(amps)} 次"
+                          f"  换线(>{a.walk_thr * 100:.0f}cm) {r.get('switches', '-')} 次"
+                          f"  最远差 {max(amps or [0]) * 100:.1f}cm  各次 {[round(x * 100, 1) for x in amps]}", flush=True)
+                    rows.append(r)
+                out.append(dict(set=s, rows=rows))
+                continue
             for gx, gy in goals:
                 p, pt = n.plan((gx, gy), start)
                 if a.save_plans and p:
