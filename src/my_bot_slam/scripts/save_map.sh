@@ -33,6 +33,11 @@ if [[ ! "$NAME" =~ ^[A-Za-z0-9_-]+$ ]]; then
   echo "错误: 地图名只允许字母/数字/下划线/连字符。" >&2
   exit 1
 fi
+# 必须在第 1 步序列化之前拦：否则旧图的位姿图已被覆盖，而后端会拒绝/沿用旧栅格，两者对不上
+if [[ -e "$MAPS_ROOT/$NAME" ]]; then
+  echo "错误: 地图 \"$NAME\" 已存在（$MAPS_ROOT/$NAME）。换个名字，或先在 app 上删掉旧图再存。" >&2
+  exit 1
+fi
 # ── 前置检查：先拦住，别等序列化完几十 MB 才炸 ────────────────────────────
 # 1) app 后端必须活着 —— 第 2 步的 pgm/tiles 全靠它产出
 if ! curl -fsS -m 5 "$BACKEND/getAllMapList" > /dev/null 2>&1; then
