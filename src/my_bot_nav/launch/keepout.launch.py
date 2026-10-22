@@ -1,13 +1,14 @@
 """Keepout 禁行区流水线（Nav2 标准 Costmap Filter 架构）。
 
-app 后端把"原图 + 画笔"存成 `~/.maps/<name>/<name>.pgm`。这张图可以**原样**当掩码用：
-KeepoutFilter 是 max 语义（只升不降），所以图里的原始墙体与全局图的 static_layer 重合、无副作用；
-局部图没有 static_layer，墙会被叠成比真墙胖的致命格，所以 neupan_smac2d 的局部图不加载 keepout_filter；
-空闲格(0) 不会擦除 obstacle_layer 探到的动态障碍；未知格(-1) 直接跳过。
-因此不需要"编辑图减干净图"的桥接节点，直接喂给标准 filter_mask_server 即可。
+app 后端把画笔单独存成 `~/.maps/<name>/<name>_keepout.{pgm,yaml}`：与原图同尺寸，
+只有画笔涂过的格子是黑的（100），其余全白（0）。这张图直接当掩码给标准 filter_mask_server。
+掩码里没有原图的墙，所以局部图加载它也不会把墙叠胖（neupan_smac2d 局部图暂未加载，待测 NeuPAN 点数）。
+KeepoutFilter 是 max 语义：白格(0) 不会擦除 obstacle_layer 探到的动态障碍。
+
+旧图没有 _keepout 文件时，按原图尺寸生成一张全白的（= 没有禁行区），在 app 上画了保存即生效。
 
 启动四个节点：
-  1. filter_mask_server         —— 加载 ~/.maps/<name>/<name>.yaml，发布 /keepout_filter_mask
+  1. filter_mask_server         —— 加载 ~/.maps/<name>/<name>_keepout.yaml，发布 /keepout_filter_mask
   2. costmap_filter_info_server —— 发布 CostmapFilterInfo，告诉 Nav2 掩码话题与类型
   3. lifecycle_manager_keepout  —— 管理上面两个 lifecycle 节点
   4. keepout_mask_reloader      —— 监听画笔保存（pgm 的 mtime），热加载掩码，免重启
@@ -48,15 +49,45 @@ def map_yaml(name: str) -> str:
     return os.path.join(MAPS_ROOT, name, f'{name}.yaml')
 
 
+def keepout_yaml(name: str) -> str:
+    return os.path.join(MAPS_ROOT, name, f'{name}_keepout.yaml')
+
+
+def ensure_keepout(name: str) -> str:
+    """返回禁行区掩码 yaml；不存在就按原图尺寸写一张全白的（格式同 app 后端）。"""
+    path = keepout_yaml(name)
+    if os.path.isfile(path):
+        return path
+    meta = {}
+    with open(map_yaml(name)) as f:
+        for line in f:
+            k, _, v = line.partition(':')
+            meta[k.strip()] = v.strip()
+    # 尺寸从原图 pgm 头取（老版本后端写的 yaml 没有 width/height）；P5 头里可夹 # 注释
+    with open(os.path.join(MAPS_ROOT, name, meta['image']), 'rb') as f:
+        head = f.read(512)
+    toks = [t for line in head.split(b'\n') if not line.startswith(b'#') for t in line.split()]
+    width, height = int(toks[1]), int(toks[2])
+    pgm = os.path.splitext(path)[0] + '.pgm'
+    with open(pgm, 'wb') as f:
+        f.write(f'P5\n{width} {height}\n255\n'.encode() + bytes([254]) * (width * height))
+    with open(path, 'w') as f:
+        f.write(f'image: {os.path.basename(pgm)}\nmode: trinary\nresolution: {meta["resolution"]}\n'
+                f'width: {width}\nheight: {height}\norigin: {meta["origin"]}\nnegate: 0\n'
+                f'occupied_thresh: 0.65\nfree_thresh: 0.25\n')
+    print(f'[keepout] 地图 "{name}" 还没有禁行区文件，已生成空的 {path}（在 app 上画了保存即生效）')
+    return path
+
+
 def _nodes(context, _pkg_nav):
     use_sim_time = LaunchConfiguration('use_sim_time')
     params_file = LaunchConfiguration('params_file')
 
     name = resolve_map_name(LaunchConfiguration('map').perform(context))
-    mask_yaml = map_yaml(name)
-    if not os.path.isfile(mask_yaml):
+    if not os.path.isfile(map_yaml(name)):
         raise RuntimeError(
-            f'地图 "{name}" 下找不到 {mask_yaml}。先用 my_bot_slam 的 save_map.sh 存一张。')
+            f'地图 "{name}" 下找不到 {map_yaml(name)}。先用 my_bot_slam 的 save_map.sh 存一张。')
+    mask_yaml = ensure_keepout(name)
     print(f'[keepout] 地图 "{name}" → 掩码 {mask_yaml}')
 
     mask_server = Node(

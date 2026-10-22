@@ -39,7 +39,7 @@ def generate_launch_description():
             description='仿真时钟。⚠️ 必须传 true，否则 dwell 走的是墙钟，'
                         'Gazebo 实时因子不是 1 时等待时长就不对'),
         DeclareLaunchArgument(
-            'controller', default_value='neupan',
+            'controller', default_value='neupan_smac2d',
             description='局部控制器'),
         DeclareLaunchArgument(
             'map', default_value='',

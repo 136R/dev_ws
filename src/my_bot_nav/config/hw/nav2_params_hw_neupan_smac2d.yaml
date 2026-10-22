@@ -136,6 +136,7 @@ local_costmap:
 
       footprint: "[[0.083, 0.0669], [0.0496, 0.1246], [0.0404, 0.13], [-0.0818, 0.13], [-0.1422, 0.0952], [-0.177, 0.0348], [-0.177, -0.0348], [-0.1422, -0.0952], [-0.0818, -0.13], [0.0404, -0.13], [0.0496, -0.1246], [0.083, -0.0669]]"
 
+      # 局部图暂不加载 keepout_filter：掩码已不含墙，但一大片禁行区会给 NeuPAN 塞很多障碍点，待仿真测过再加回
       # plugins: ["obstacle_layer", "keepout_filter", "inflation_layer"]
       plugins: ["obstacle_layer", "inflation_layer"]
       keepout_filter:
