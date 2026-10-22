@@ -33,7 +33,7 @@ slam_toolbox/srv/SerializePoseGraph \
 ros2 launch my_bot_nav nav.launch.py controller:=rpp path_valid_service:=/path_center_check
 ros2 launch my_bot_nav nav.launch.py controller:=neupan
 ros2 launch my_bot_nav nav.launch.py \
-  params_file:=/home/orangepi/dev_ws/src/my_bot_nav/config/hw/nav2_params_hw_neupan_smac2d.yaml
+  params_file:=/home/orangepi/dev_ws/src/my_bot_nav/config/hw/nav2_params_hw_neupan_smac2d.yaml path_valid_service:=/path_center_check
 # 任务层（包含nav2）
 ros2 launch my_bot_task task.launch.py
 

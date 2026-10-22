@@ -1,0 +1,28 @@
+# nav_lap_report.py batch 的参数组模板（仅仿真）
+# 用法：先关掉自己开的仿真/定位/导航，再
+#   ros2 run my_bot_nav nav_lap_report.py batch ~/dev_ws/src/my_bot_nav/config/sim/lap_groups_template.yaml
+# 结果：~/nav_reports/<label>.json；日志和每组实际用的 NeuPAN yaml：~/nav_reports/batch_<时间>/
+
+# ---- 默认值（每组可单独覆盖 laps / map / stuck）----
+laps: 3                     # 每组跑几圈
+map: unit                   # unit = nav_unit_40 测试场；maze = my_world_40 七段路线
+stuck: 15                   # 秒；这么久挪不到 3cm、转不到 10° 算卡死 → 跳过这段
+controller: neupan_smac2d   # nav.launch.py 的 controller:=
+
+groups:
+  # 基准组：什么都不改，用 neupan_sim.yaml 和 nav2 参数文件里的原值
+  - label: base
+
+  # 只改 NeuPAN：键 = neupan_sim.yaml 里的点号路径，拼错会在开跑前报错
+  - label: eta15
+    neupan:
+      adjust.eta: 15.0
+      adjust.d_max: 0.1
+
+  # NeuPAN + Nav2 一起改；Nav2 写 节点名: {参数: 值}，小数一定带小数点
+  - label: slow_pad06
+    neupan:
+      ref_speed: 0.35        # 不能超过 robot.max_speed 的 0.4，超了会被截断
+    nav2:
+      global_costmap/global_costmap: {footprint_padding: 0.06}
+      # controller_server: {progress_checker.movement_time_allowance: 20.0}  # 想让 15s 卡死判定先于导航自己放弃时打开

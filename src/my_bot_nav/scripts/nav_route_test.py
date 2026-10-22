@@ -6,13 +6,13 @@
   - 跟踪偏差：车中心到当前 /plan 的距离
   - 车身离墙：按真实车身外廓到 sdf 真实墙面的距离（负数 = 已擦墙）
   - planner 报 "Starting point in lethal space" 的次数
-某段失败时自动脱困（/cmd_vel_keyboard 挪开 → padding 临时降到 0.01 开回原点 → 恢复 0.05），再开下一圈。
+某段失败时自动脱困（/cmd_vel_keyboard 挪开 → padding 临时降到 0.01 开回原点 → 恢复脱困前的值），再开下一圈。
 
 用法（仿真、定位、导航都已起来，车停在原点）：
   ros2 run my_bot_nav nav_route_test.py B '{"min_lookahead_dist":0.15,"max_lookahead_dist":0.3}' 3
   ros2 run my_bot_nav nav_route_test.py cur '{}' 1     # {} = 不改参数，用控制器当前值
   ros2 run my_bot_nav nav_route_test.py r2 '{}' 1 --route '[[1.6,-0.6],[0.0,0.0]]'
-参数：<标签> <FollowPath 参数 JSON> <圈数> [--world sdf] [--route JSON]
+参数：<标签> <FollowPath 参数 JSON> <圈数> [--world sdf] [--route JSON] [--stuck 秒]
 --route 要从原点出发、最后回原点（失败脱困也是开回原点）。只能在仿真跑（要 sdf 真值、会自动发键盘速度）。
 结果写到当前目录 <标签>_all.json（每段轨迹）、<标签>_fails.json（失败段）。
 """
@@ -30,10 +30,10 @@ from geometry_msgs.msg import Twist
 from nav2_msgs.action import NavigateToPose
 from nav_msgs.msg import Path
 from rcl_interfaces.msg import Log
-from rcl_interfaces.srv import SetParameters
+from rcl_interfaces.srv import GetParameters, SetParameters
 from rclpy.action import ActionClient
 from rclpy.node import Node
-from rclpy.parameter import Parameter
+from rclpy.parameter import Parameter, parameter_value_to_python
 from tf2_ros import Buffer, TransformListener
 
 WORLD = os.path.join(get_package_share_directory("my_bot"), "worlds", "my_world_40.sdf")
@@ -41,7 +41,6 @@ ROUTE = [(0.99, -1.71), (0.0, 0.0), (1.6, -0.6), (0.0, 1.55), (-1.65, 0.75), (-1
 # 裸车身外廓（base_link 系），与 my_bot_hw/config/laser_filters.yaml 的 body_polygon_filter 同一份
 BODY = [[0.063, 0.0615], [0.035, 0.11], [-0.0765, 0.11], [-0.1275, 0.0805], [-0.157, 0.0295],
         [-0.157, -0.0295], [-0.1275, -0.0805], [-0.0765, -0.11], [0.035, -0.11], [0.063, -0.0615]]
-PAD_NORMAL = 0.05   # 全局 costmap 平时的 footprint_padding
 PAD_RECOVER = 0.01  # 脱困时临时值，让 planner 能从贴墙位置出发
 
 
@@ -112,6 +111,7 @@ class RouteTester(Node):
         self.create_subscription(Log, "/rosout", self.log_cb, 50)
         self.ctrl_cli = self.create_client(SetParameters, "/controller_server/set_parameters")
         self.cm_cli = self.create_client(SetParameters, "/global_costmap/global_costmap/set_parameters")
+        self.cm_get = self.create_client(GetParameters, "/global_costmap/global_costmap/get_parameters")
         self.kb_pub = self.create_publisher(Twist, "/cmd_vel_keyboard", 10)
 
     def plan_cb(self, m):
@@ -141,7 +141,7 @@ class RouteTester(Node):
                 pass
         return None
 
-    def go(self, gx, gy, tmax=60):
+    def go(self, gx, gy, tmax=60, stuck=0.0):
         g = NavigateToPose.Goal()
         g.pose.header.frame_id = "map"
         g.pose.pose.position.x = gx
@@ -166,10 +166,16 @@ class RouteTester(Node):
                 xt.append(e)
             self.trace.append((round(time.time() - t0, 2), round(x, 3), round(y, 3),
                                round(math.degrees(th)), round(e * 100, 1), round(b * 100, 1)))
+            if stuck and self.trace[-1][0] > stuck:
+                # 最近 stuck 秒内挪动 < 3cm 且转动 < 10° 算卡住
+                old = next(t for t in self.trace if t[0] >= self.trace[-1][0] - stuck)
+                dyaw = abs((self.trace[-1][3] - old[3] + 180) % 360 - 180)
+                if math.hypot(x - old[1], y - old[2]) < 0.03 and dyaw < 10:
+                    break
         if not rf.done():
             cf = h.cancel_goal_async()
             rclpy.spin_until_future_complete(self, cf, timeout_sec=5)
-            st = "TIMEOUT"
+            st = "STUCK" if time.time() - t0 < tmax else "TIMEOUT"
         else:
             st = {GoalStatus.STATUS_SUCCEEDED: "OK", GoalStatus.STATUS_ABORTED: "ABORT",
                   GoalStatus.STATUS_CANCELED: "CANCEL"}.get(rf.result().status, str(rf.result().status))
@@ -203,12 +209,17 @@ class RouteTester(Node):
         self.kb_pub.publish(Twist())
         time.sleep(0.5)
 
-    def recover(self):
+    def recover(self, stuck=0.0):
         self.unstick()
+        req = GetParameters.Request()
+        req.names = ["footprint_padding"]
+        f = self.cm_get.call_async(req)
+        rclpy.spin_until_future_complete(self, f, timeout_sec=10)
+        pad_normal = parameter_value_to_python(f.result().values[0])  # 脱困前的值，脱困后原样恢复
         self.set_params(self.cm_cli, {"footprint_padding": PAD_RECOVER})
         time.sleep(3)
-        r = self.go(0.0, 0.0)
-        self.set_params(self.cm_cli, {"footprint_padding": PAD_NORMAL})
+        r = self.go(0.0, 0.0, stuck=stuck)
+        self.set_params(self.cm_cli, {"footprint_padding": pad_normal})
         time.sleep(3)
         return r["status"] == "OK"
 
@@ -220,6 +231,7 @@ def main():
     ap.add_argument("reps", type=int)
     ap.add_argument("--world", default=WORLD)
     ap.add_argument("--route", default=json.dumps(ROUTE), help="JSON [[x,y],...]")
+    ap.add_argument("--stuck", type=float, default=0.0, help="秒；>0 时卡住这么久就取消这段、回原点、不再跑后面的圈")
     a = ap.parse_args()
     label, params, reps = a.label, json.loads(a.params), a.reps
     route = [tuple(p) for p in json.loads(a.route)]
@@ -232,7 +244,7 @@ def main():
     aborted = False
     for rep in range(reps):
         for gx, gy in route:
-            r = n.go(gx, gy)
+            r = n.go(gx, gy, stuck=a.stuck)
             legs.append(r)
             alltr.append(dict(r=r, trace=n.trace))
             if r["status"] != "OK":
@@ -240,6 +252,9 @@ def main():
                 print("  FAIL", r, flush=True)
                 if not n.recover():
                     print("  !! 回原点失败，中止")
+                    aborted = True
+                elif r["status"] == "STUCK":
+                    print("  !! 卡住，回原点后不再跑后面的圈")
                     aborted = True
                 break
         if aborted:

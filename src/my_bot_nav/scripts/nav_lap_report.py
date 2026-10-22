@@ -7,6 +7,22 @@
   ros2 run my_bot_nav nav_lap_report.py show F3c P6 F3c_u                 # 已存的几次结果并排比
 结果存在 ~/nav_reports/<标签>.json（含当时的 NeuPAN 关键参数），show 时按标签读。
 
+批量跑多组参数（脚本自己起停 仿真+定位+导航，开跑前你那套必须关掉）：
+  ros2 run my_bot_nav nav_lap_report.py batch groups.yaml
+groups.yaml（顶层是默认值，每组可覆盖 laps/map/stuck；没写的参数保持原值）：
+  laps: 3
+  map: unit                  # maze / unit
+  stuck: 15                  # 秒；这么久挪不到 3cm、转不到 10° 算卡死
+  controller: neupan_smac2d  # nav.launch.py 的 controller:=
+  groups:
+    - label: A
+      neupan:                # NeuPAN yaml 点号路径，写进临时 yaml，导航生命周期重置后重读
+        adjust.eta: 10
+      nav2:                  # 节点名: {参数: 值}，运行中直接改
+        global_costmap/global_costmap: {footprint_padding: 0.02}
+某段卡死/失败 → 脱困开回原点，跳过这段接着跑；开回原点也卡死 → 重启整套再接着跑下一段；
+同一组重启满 2 次记为中止，换下一组。全部跑完并排出表；仿真/定位/导航日志在 ~/nav_reports/batch_<时间>/。
+
 表里各项：
   车身离墙最近（真值）   按 Gazebo 真实位姿 + 真实车身外廓算到 sdf 墙面，负数 = 擦墙
   擦墙时长               真值离墙 < 0 的累计秒数
@@ -19,6 +35,7 @@ import argparse
 import json
 import math
 import os
+import signal
 import subprocess
 import sys
 import tempfile
@@ -30,13 +47,16 @@ import rclpy
 import yaml
 from ament_index_python.packages import get_package_share_directory
 from geometry_msgs.msg import PoseStamped
+from nav2_msgs.srv import ManageLifecycleNodes
 from rcl_interfaces.msg import Log
-from rcl_interfaces.srv import GetParameters
+from rcl_interfaces.srv import GetParameters, SetParameters
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
-from rclpy.parameter import parameter_value_to_python
+from rclpy.parameter import Parameter, parameter_value_to_python
+from std_srvs.srv import Trigger
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import nav_route_test as nrt  # noqa: E402
 from plan_sweep import load_walls  # noqa: E402
 
 WORLDS = os.path.join(get_package_share_directory("my_bot"), "worlds")
@@ -64,13 +84,19 @@ class Recorder(Node):
     def __init__(self):
         super().__init__("nav_lap_report")
         self.truth, self.logs = [], []
+        self.toff, self.t_wall = 0.0, 0.0
         self.create_subscription(PoseStamped, "/gz/model/my_bot/pose", self.truth_cb, 50)
         self.create_subscription(Log, "/rosout", self.log_cb, 200)
 
     def truth_cb(self, m):
         q = m.pose.orientation
         yaw = math.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z))
-        self.truth.append((m.header.stamp.sec + m.header.stamp.nanosec * 1e-9, m.pose.position.x, m.pose.position.y, yaw))
+        t = m.header.stamp.sec + m.header.stamp.nanosec * 1e-9 + self.toff
+        if self.truth and t < self.truth[-1][0] - 1.0:  # 仿真重启后时间从 0 开始，接到上一段后面
+            self.toff += self.truth[-1][0] - t
+            t = self.truth[-1][0]
+        self.truth.append((t, m.pose.position.x, m.pose.position.y, yaw))
+        self.t_wall = time.time()
 
     def log_cb(self, m):
         if m.name in ("controller_server", "behavior_server"):
@@ -104,6 +130,17 @@ class Recorder(Node):
             out[k] = v
         out["robot.shape"] = "多边形" if (y.get("robot") or {}).get("vertices") else "矩形"
         return out, path
+
+    def call(self, srv, name, req, timeout=10.0):
+        """同步调服务（本节点在后台线程 spin）；超时返回 None。"""
+        cli = self.create_client(srv, name)
+        if not cli.wait_for_service(timeout_sec=timeout):
+            return None
+        f = cli.call_async(req)
+        t0 = time.time()
+        while not f.done() and time.time() - t0 < timeout:
+            time.sleep(0.05)
+        return f.result() if f.done() else None
 
 
 def wrap(a):
@@ -198,6 +235,8 @@ def show(results):
     rows = [
         ["地图 / 圈数"] + [f"{r['map']} / {r['laps']}" for r in results],
         ["到达"] + [f"{x['legs_ok']}/{x['legs']}" for x in m],
+        ["跳过段 / 重启"] + [f"{x['legs'] - x['legs_ok']} / {r.get('restarts', '—')}" + (" 中止" if r.get("aborted") else "")
+                             for x, r in zip(m, results)],
         ["车身离墙最近（真值）"] + [f"{x['clear_min']} cm" for x in m],
         ["擦墙时长"] + [f"{x['scrape_s']} s" for x in m],
         ["NeuPAN 急停次数"] + [x["stops"] for x in m],
@@ -216,6 +255,221 @@ def show(results):
     for r in results:
         for f in r["metrics"]["fails"]:
             print(f"  {r['label']} 失败段：去 {f['goal']} {f['status']}，停在 {f['end']}")
+        for l in r.get("legs", []):
+            if l.get("from_origin"):
+                print(f"  {r['label']} 起点不同（上一段跳过，从原点出发）：去 {l['goal']} {l['status']}")
+
+
+# ---------- batch：脚本自己起停整套，按参数组依次跑 ----------
+STACK_PAT = "gz sim|slam_toolbox|nav2_|bt_navigator|parameter_bridge|laser_filter|ekf_node|task_manager|ros_gui_backend"
+
+
+class Stack:
+    """脚本自己起的 仿真 + 定位 + 导航；每条 launch 单独一个进程组，关的时候只关这几组。"""
+
+    def __init__(self, logdir, controller):
+        self.logdir, self.controller = logdir, controller
+        self.procs, self.n, self.map = [], 0, None
+
+    def start(self, map_key):
+        world_file = MAPS[map_key][0]
+        name = os.path.splitext(world_file)[0]  # ~/.maps 下与世界同名的地图
+        cmds = [["ros2", "launch", "my_bot", "launch_sim.launch.py", "world:=" + os.path.join(WORLDS, world_file)],
+                ["ros2", "launch", "my_bot_slam", "slam.launch.py", "use_sim_time:=true", "mode:=localization", "map:=" + name],
+                ["ros2", "launch", "my_bot_nav", "nav.launch.py", "use_sim_time:=true",
+                 "controller:=" + self.controller, "map:=" + name]]
+        self.n += 1
+        self.map = map_key
+        print(f"[启动 #{self.n}] {name}，日志 {self.logdir}/stack{self.n}_*.log", flush=True)
+        for i, c in enumerate(cmds):
+            log = open(os.path.join(self.logdir, f"stack{self.n}_{i}.log"), "w")
+            self.procs.append(subprocess.Popen(c, stdout=log, stderr=subprocess.STDOUT, start_new_session=True))
+            time.sleep(5)
+
+    def stop(self):
+        for p in reversed(self.procs):
+            for sig, wait in ((signal.SIGINT, 20), (signal.SIGTERM, 5), (signal.SIGKILL, 5)):
+                try:
+                    os.killpg(p.pid, sig)
+                except ProcessLookupError:
+                    break
+                t0 = time.time()
+                gone = False
+                while not gone and time.time() - t0 < wait:
+                    p.poll()  # 收掉 launch 父进程，不然它的僵尸让进程组一直"还在"
+                    try:
+                        os.killpg(p.pid, 0)
+                        time.sleep(0.2)
+                    except ProcessLookupError:
+                        gone = True
+                if gone:
+                    break
+        self.procs = []
+
+
+def wait_ready(node, tester, timeout=180):
+    """等 仿真真值 + 导航生命周期激活 + 定位 TF 都就绪，返回 RouteTester（首次新建，之后清掉旧仿真的 TF）。"""
+    t0 = time.time()
+    while time.time() - node.t_wall > 1.0:
+        if time.time() - t0 > timeout:
+            raise RuntimeError("收不到 Gazebo 真值，看 stack*_0.log")
+        time.sleep(0.5)
+    while True:
+        r = node.call(Trigger, "/lifecycle_manager_navigation/is_active", Trigger.Request(), timeout=5)
+        if r and r.success:
+            break
+        if time.time() - t0 > timeout:
+            raise RuntimeError("导航没激活，看 stack*_2.log")
+        time.sleep(2)
+    if tester is None:
+        tester = nrt.RouteTester()
+    else:
+        tester.buf.clear()  # 仿真重启后时间从 0 开始，旧 TF 时间戳更大，不清会一直查到旧位姿
+    while tester.pose(tries=20) is None:
+        if time.time() - t0 > timeout:
+            raise RuntimeError("查不到 map→base_footprint，看 stack*_1.log")
+    tester.ac.wait_for_server(timeout_sec=30)
+    return tester
+
+
+def has_dotted(y, key):
+    for k in key.split("."):
+        if not isinstance(y, dict) or k not in y:
+            return False
+        y = y[k]
+    return True
+
+
+def set_dotted(y, key, v):
+    ks = key.split(".")
+    for k in ks[:-1]:
+        y = y[k]
+    y[ks[-1]] = v
+
+
+def apply_group(node, g, base_cfg, workdir):
+    """NeuPAN 参数写进临时 yaml、Nav2 参数直接设，再让导航生命周期 RESET+STARTUP，控制器重读 yaml。"""
+    y = yaml.safe_load(open(base_cfg))
+    for k, v in (g.get("neupan") or {}).items():
+        set_dotted(y, k, v)
+    cfg = os.path.join(workdir, g["label"] + "_neupan.yaml")
+    with open(cfg, "w") as f:
+        yaml.safe_dump(y, f, allow_unicode=True, sort_keys=False)
+    sets = {n: dict(p) for n, p in (g.get("nav2") or {}).items()}
+    sets.setdefault("controller_server", {})["FollowPath.config_file"] = cfg
+    for n, p in sets.items():
+        req = SetParameters.Request()
+        req.parameters = [Parameter(k, value=v).to_parameter_msg() for k, v in p.items()]
+        r = node.call(SetParameters, f"/{n}/set_parameters", req)
+        if r is None:
+            raise ValueError(f"/{n}/set_parameters 连不上")
+        bad = [f"{n} {k}: {x.reason}" for k, x in zip(p, r.results) if not x.successful]
+        if bad:
+            raise ValueError("参数设置失败 " + "; ".join(bad))
+    for cmd in (ManageLifecycleNodes.Request.RESET, ManageLifecycleNodes.Request.STARTUP):
+        req = ManageLifecycleNodes.Request()
+        req.command = cmd
+        r = node.call(ManageLifecycleNodes, "/lifecycle_manager_navigation/manage_nodes", req, timeout=60)
+        if not (r and r.success):
+            raise RuntimeError("导航生命周期 RESET/STARTUP 失败，看 stack*_2.log")
+    time.sleep(3)  # 让代价地图收齐地图和雷达
+
+
+def batch(path):
+    spec = yaml.safe_load(open(path))
+    dflt = dict(laps=spec.get("laps", 3), map=spec.get("map", "maze"), stuck=spec.get("stuck", 15))
+    groups = [dict(dflt, **g) for g in spec["groups"]]
+    labels = [g["label"] for g in groups]
+    if len(set(labels)) != len(labels):
+        sys.exit(f"标签重复：{labels}")
+    bad = [g["label"] for g in groups if g["map"] not in MAPS]
+    if bad:
+        sys.exit(f"这些组的 map 不是 {list(MAPS)}：{bad}")
+    running = [l for l in subprocess.run(["pgrep", "-af", STACK_PAT], capture_output=True, text=True).stdout.splitlines()
+               if "nav_lap_report" not in l]
+    if running:
+        sys.exit("已经有仿真/定位/导航在跑，先关掉再跑 batch：\n" + "\n".join(running))
+
+    workdir = os.path.join(OUTDIR, "batch_" + time.strftime("%m%d_%H%M%S"))
+    os.makedirs(workdir)
+    stack = Stack(workdir, spec.get("controller", "neupan_smac2d"))
+    rclpy.init()
+    node = Recorder()
+    ex = SingleThreadedExecutor()
+    ex.add_node(node)
+    threading.Thread(target=ex.spin, daemon=True).start()
+    results, tester, base_cfg = [], None, None
+    try:
+        for g in groups:
+            if stack.map != g["map"]:
+                stack.stop()
+                stack.start(g["map"])
+                tester = wait_ready(node, tester)
+            if base_cfg is None:  # 第一次起来时 controller_server 指着的 NeuPAN yaml，各组都在它上面改
+                base_cfg = node.neupan_params()[1]
+                y = yaml.safe_load(open(base_cfg))
+                miss = sorted({k for gg in groups for k in (gg.get("neupan") or {}) if not has_dotted(y, k)})
+                if miss:
+                    sys.exit(f"{base_cfg} 里没有这些键（拼错了？）：{miss}")
+            world = os.path.join(WORLDS, MAPS[g["map"]][0])
+            walls = load_walls(world)
+            nrt.WALLS[:] = nrt.load_walls(world)
+            route = MAPS[g["map"]][1] or nrt.ROUTE
+            print(f"\n=== {g['label']}：{g['map']} {g['laps']} 圈，卡死 {g['stuck']}s ===", flush=True)
+            try:
+                apply_group(node, g, base_cfg, workdir)
+            except ValueError as e:
+                print(f"  !! 跳过这组：{e}", flush=True)
+                continue
+            params, cfg = node.neupan_params()
+            node.truth.clear()
+            node.logs.clear()
+            legs, restarts, aborted, from_origin = [], 0, False, False
+            for rep in range(g["laps"]):
+                for gx, gy in route:
+                    if from_origin and math.hypot(gx, gy) < 1e-6:  # 跳过后车已在原点，这段"回原点"不算
+                        from_origin = False
+                        continue
+                    r = tester.go(gx, gy, stuck=g["stuck"])
+                    r["rep"] = rep
+                    if from_origin:
+                        r["from_origin"] = True
+                    legs.append(r)
+                    print(f"  第{rep + 1}圈 去 ({gx}, {gy})：{r['status']} {r['t']}s", flush=True)
+                    if r["status"] == "OK":
+                        from_origin = False
+                        continue
+                    from_origin = math.hypot(gx, gy) > 1e-6  # 下一段本该从这段终点出发，现在从原点出发
+                    if tester.recover(g["stuck"]):
+                        print("  已回原点，跳过这段", flush=True)
+                        continue
+                    restarts += 1
+                    print(f"  !! 回不了原点，重启整套（本组第 {restarts} 次）", flush=True)
+                    stack.stop()
+                    stack.start(g["map"])
+                    tester = wait_ready(node, tester)
+                    if restarts >= 2:
+                        print("  !! 本组重启满 2 次，中止，换下一组", flush=True)
+                        aborted = True
+                        break
+                    apply_group(node, g, base_cfg, workdir)
+                if aborted:
+                    break
+            res = dict(label=g["label"], map=g["map"], laps=g["laps"], time=time.strftime("%Y-%m-%d %H:%M"),
+                       params=params, config_file=cfg, restarts=restarts, aborted=aborted,
+                       metrics=analyse(list(node.truth), list(node.logs), legs, walls), legs=legs)
+            json.dump(res, open(os.path.join(OUTDIR, g["label"] + ".json"), "w"), ensure_ascii=False, indent=1)
+            results.append(res)
+    finally:
+        if tester:
+            tester.destroy_node()
+        stack.stop()
+        ex.shutdown()
+        rclpy.shutdown()
+    print()
+    if results:
+        show(results)
+    print(f"\n各组结果存在 {OUTDIR}/<标签>.json；仿真/定位/导航日志和各组 NeuPAN yaml 在 {workdir}")
 
 
 def main():
@@ -225,13 +479,19 @@ def main():
     r.add_argument("label")
     r.add_argument("--laps", type=int, default=3)
     r.add_argument("--map", choices=list(MAPS), default="maze")
+    r.add_argument("--stuck", type=float, default=0.0, help="秒；卡住这么久就放弃本次（回原点后不再跑后面的圈）")
     s = sub.add_parser("show")
     s.add_argument("labels", nargs="+")
+    b = sub.add_parser("batch")
+    b.add_argument("groups", help="参数组 yaml，格式见上")
     a = ap.parse_args()
     os.makedirs(OUTDIR, exist_ok=True)
 
     if a.cmd == "show":
         show([json.load(open(os.path.join(OUTDIR, l + ".json"))) for l in a.labels])
+        return
+    if a.cmd == "batch":
+        batch(a.groups)
         return
 
     world_file, route = MAPS[a.map]
@@ -260,6 +520,8 @@ def main():
     cmd = ["ros2", "run", "my_bot_nav", "nav_route_test.py", a.label, "{}", str(a.laps), "--world", world]
     if route:
         cmd += ["--route", json.dumps(route)]
+    if a.stuck:
+        cmd += ["--stuck", str(a.stuck)]
     subprocess.run(cmd, cwd=work)
     time.sleep(1.0)
     try:

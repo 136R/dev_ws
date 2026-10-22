@@ -5,6 +5,7 @@
 统计成功数、路线总长、总转角、中心离墙。测完把改过的参数恢复成运行前的值。
   - 离墙（地图）：路线点到 /map 占据格中心的最近距离，仿真/实机都能用
   - 离墙（真值）：给了 --world 时，按 sdf 真实墙面算（只有仿真有）
+  - 窄段离正中：给了 --world 时，只统计截面宽 ≤0.7m、前后 15cm 路线不转弯的点（见 center_offsets）
 只改 global_costmap 的参数（footprint_padding、inflation_layer.*）。SmacPlanner2D 的参数
 在 Humble 下 ros2 param set 显示成功但不生效，要改 yaml 重启导航。
 
@@ -54,6 +55,60 @@ def load_walls(path):
 
 def wall_dist(x, y, walls):
     return min(math.hypot(max(a - x, 0, x - b), max(c - y, 0, y - d)) for a, b, c, d in walls)
+
+
+def ray_dist(x, y, dx, dy, walls):
+    """从 (x,y) 沿单位方向 (dx,dy) 到第一面墙的距离（矩形 slab 求交）；点在墙里返回 0。"""
+    best = float("inf")
+    for a, b, c, d in walls:
+        t0, t1 = -float("inf"), float("inf")
+        for o, v, lo, hi in ((x, dx, a, b), (y, dy, c, d)):
+            if abs(v) < 1e-12:
+                if not lo <= o <= hi:
+                    break
+            else:
+                u0, u1 = sorted(((lo - o) / v, (hi - o) / v))
+                t0, t1 = max(t0, u0), min(t1, u1)
+        else:
+            if t0 <= t1 and t1 >= 0:
+                best = min(best, max(t0, 0.0))
+    return best
+
+
+def center_offsets(p, walls, max_width=0.7, max_turn=20.0, win=0.15, skip_end=0.3):
+    """窄段里路线点离截面正中多远（按 sdf 真实墙面）。
+    截面 = 过该点、垂直于路线的线段，两头到墙为止；"正中" = 截面上离墙最远的位置。
+    只算：截面宽 ≤ max_width（窄通道/窄口，排除房间）；前后 win 内路线转角 < max_turn（排除拐角、路口里转弯）；
+    离起终点 > skip_end（那里位置是给定的）。平行墙通道里它就等于离中线的距离。
+    返回 [(x, y, 离正中, 截面宽), ...]"""
+    cum = [0.0]
+    for a, b in zip(p, p[1:]):
+        cum.append(cum[-1] + math.hypot(b[0] - a[0], b[1] - a[1]))
+
+    def at(s):  # 弧长 s 处的点
+        k = min(range(len(cum)), key=lambda i: abs(cum[i] - s))
+        return p[k]
+    out, last = [], -1.0
+    for i, (x, y) in enumerate(p):
+        if cum[i] < skip_end or cum[-1] - cum[i] < skip_end or cum[i] - last < 0.05:
+            continue
+        pa, pm, pb = at(cum[i] - win), (x, y), at(cum[i] + win)
+        h1 = math.atan2(pm[1] - pa[1], pm[0] - pa[0])
+        h2 = math.atan2(pb[1] - pm[1], pb[0] - pm[0])
+        if abs((h2 - h1 + math.pi) % (2 * math.pi) - math.pi) > math.radians(max_turn):
+            continue
+        h = math.atan2(pb[1] - pa[1], pb[0] - pa[0])
+        nx, ny = -math.sin(h), math.cos(h)
+        dl, dr = ray_dist(x, y, nx, ny, walls), ray_dist(x, y, -nx, -ny, walls)
+        if dl + dr > max_width:
+            continue
+        ss = [-dr + k * 0.005 for k in range(int((dl + dr) / 0.005) + 1)]
+        cs = [wall_dist(x + nx * s, y + ny * s, walls) for s in ss]
+        cmax = max(cs)
+        ridge = [s for s, c in zip(ss, cs) if c > cmax - 0.002]   # 离墙最远处可能是一小段平台，取它的中点
+        out.append((x, y, abs((ridge[0] + ridge[-1]) / 2), dl + dr))
+        last = cum[i]
+    return out
 
 
 def path_metrics(p):
@@ -177,6 +232,7 @@ def main():
                     row["map_clr"] = min(n.map_dist(x, y) for x, y in p)
                     if walls:
                         row["wall_clr"] = min(wall_dist(x, y, walls) for x, y in p)
+                        row["center"] = center_offsets(p, walls)
                 rows.append(row)
             good = [r for r in rows if r["ok"]]
             line = (f"{json.dumps(s)} set={ok}: 成功 {len(good)}/{len(rows)}"
@@ -184,6 +240,10 @@ def main():
                     f"  中心离墙(地图格中心) {min([r['map_clr'] for r in good] or [float('nan')]):.3f}m")
             if walls:
                 line += f"  中心离墙(真实墙面) {min([r['wall_clr'] for r in good] or [float('nan')]):.3f}m"
+                off = sorted(c[2] for r in good for c in r["center"])
+                if off:
+                    line += (f"  窄段离正中 均值 {sum(off) / len(off) * 100:.1f}cm"
+                             f" 90% {off[int(0.9 * (len(off) - 1))] * 100:.1f}cm 最大 {off[-1] * 100:.1f}cm（{len(off)} 点）")
             line += f"  最长规划 {max([r['plan_ms'] for r in rows] or [0]):.0f}ms"
             fails = [r["goal"] for r in rows if not r["ok"]]
             if fails:
