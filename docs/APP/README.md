@@ -43,6 +43,7 @@ ros_gui_backend  (C++, 部署在 ~/ros_flutter_gui/)   ← 不参与 colcon 构�
 | 不变量 | 违反后的症状 | 依据 |
 | --- | --- | --- |
 | **地图名不能叫 `map`** | 画的禁行区被 slam 实时地图周期性覆盖、悄悄消失 | `default_map_name` 硬编码为 `"map"`（`map_manager.cpp:362`），后端持续把 `MapSubTopic` 镜像进 `~/.maps/map/` |
+| **画笔只写 `<n>_keepout.pgm`，不改原图 `<n>.pgm`** | 以为擦掉了墙，车照样绕；或去原图里找禁行区找不到 | `map_manager.cpp` 的 `ApplyMapEditFromQuery`；瓦片是"原图 + 禁行区"叠出来的 |
 | **目录名 = 文件名**：`~/.maps/<n>/<n>.yaml` | 路径写岔 → `Failed processing YAML file ... bad file` | `map_manager.cpp:198` |
 | **app 的「另存为」不产 posegraph** | 另存的图起 slam localization 时报错找不到 `.posegraph` | 它走 `/saveMapEdit`，只复制栅格（`map_manager.cpp:190-265`）。`slam.launch.py` 会按几何+像素相似度自动认亲补齐 |
 | **`serialize_map` 在 localization 模式下会被拒，但仍返回 `result=0`** | 存图静默失败 | 所以 `save_map.sh` 靠**文件新鲜度**判断成败，不看返回码 |
@@ -50,6 +51,7 @@ ros_gui_backend  (C++, 部署在 ~/ros_flutter_gui/)   ← 不参与 colcon 构�
 | **配置字段不能带首尾空格** | app 不 trim → TF 查找静默失败 | `gui_app_settings.json` |
 | **`gui_app_settings.json` 覆盖 `cfg/config.yaml`** | 改了 yaml 却不生效 | 后端以 `--config-json` 加载 |
 | **后端只在地图内容【真的变了】时才重写 `~/.maps/map/`** | 别再拿镜像的 mtime 当"slam 还活着"的信号 —— 机器人静止时它本来就不动。`save_map.sh` 曾经这么干，结果"建完图停下来过 30 秒再存图"会被误判成失败 | 我们 fork 的 commit `63e4556`。上游原版是**每秒**无条件重写（1365 张瓦片、约 476 GB/天，会写坏 SD 卡） |
+| **`dist/` 和后端必须一起部署** | 只换其一 → app 上保存地图失败（405 / 400） | `/saveMapEdit` 已从 GET 改成 POST JSON 正文，前后端两边一起改的 |
 | **不能用自己编的 dist/ 配上游的后端二进制（或反过来）** | 用上游的预编译后端 → 丢掉上面那个修复，写入量回到 476 GB/天 | 后端已分叉，见 [复现与部署.md](复现与部署.md) |
 
 ---
