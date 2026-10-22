@@ -44,6 +44,9 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'map', default_value='',
             description='地图名；留空则读 ~/.maps/current_map'),
+        DeclareLaunchArgument(
+            'path_valid_service', default_value='is_path_valid',
+            description='BT 中 IsPathValid 调用的服务名；/path_center_check = 只看车中心格子'),
         # ⚠️ 必须叫 task_params_file，不能叫 params_file。
         # IncludeLaunchDescription 不隔离 LaunchConfiguration 作用域 —— 子 launch
         # (nav.launch.py) 会【继承】父作用域里的同名配置，而它自己的
@@ -73,6 +76,7 @@ def generate_launch_description():
                 'use_sim_time': use_sim_time,
                 'controller': LaunchConfiguration('controller'),
                 'map': LaunchConfiguration('map'),
+                'path_valid_service': LaunchConfiguration('path_valid_service'),
                 # ← 劫持：把 /goal_pose 让给任务层
                 'goal_pose_topic': NAV2_GOAL_TOPIC,
             }.items(),
