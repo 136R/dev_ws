@@ -2,7 +2,7 @@
 
 app 后端把画笔单独存成 `~/.maps/<name>/<name>_keepout.{pgm,yaml}`：与原图同尺寸，
 只有画笔涂过的格子是黑的（100），其余全白（0）。这张图直接当掩码给标准 filter_mask_server。
-掩码里没有原图的墙，所以局部图加载它也不会把墙叠胖（neupan_smac2d 局部图暂未加载，待测 NeuPAN 点数）。
+掩码里没有原图的墙，所以局部图加载它也不会把墙叠胖。
 KeepoutFilter 是 max 语义：白格(0) 不会擦除 obstacle_layer 探到的动态障碍。
 
 旧图没有 _keepout 文件时，按原图尺寸生成一张全白的（= 没有禁行区），在 app 上画了保存即生效。
