@@ -243,7 +243,12 @@ planner_server:
     planner_plugins: ["GridBased"]
     # 插件名保持 "GridBased" 不变——BT 里 ComputePathToPose 的 planner_id="GridBased" 才对得上
     GridBased:
-      plugin: "nav2_smac_planner/SmacPlanner2D"
+      # 外壳包住 SmacPlanner2D：新路线明显更好才换，空旷处等价路线不被 4 s 强制重规划来回换
+      plugin: "my_bot_nav::StickyPlanner"
+      primary_planner: "nav2_smac_planner/SmacPlanner2D"
+      switch_min_gain: 0.2              # 新路线分数（步长×(1+cost_travel_multiplier×代价/252) 累加）比旧路线剩余少这么多才换；仿真实测等价路线分差 ≤0.08、障碍挪开后近路省 ≥0.45（2026-10-22）
+      max_deviation: 0.3                # 车离旧路线超过此距离(m)直接用新路线
+      # —— 以下为 primary_planner(SmacPlanner2D) 自身参数，与外壳参数平铺在同一 GridBased 命名空间 ——
       tolerance: 0.15
       downsample_costmap: false         # 不降采样 costmap（分辨率已 0.05，够用）
       downsampling_factor: 1
