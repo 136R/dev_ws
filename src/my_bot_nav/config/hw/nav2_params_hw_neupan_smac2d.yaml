@@ -106,7 +106,7 @@ controller_server:
       angular_dist_threshold: 1.047      # 超过此偏差才原地转，小偏差仍交给 NeuPAN 用弧线自然纠正
       forward_sampling_distance: 0.1     # 沿路径前探 m 取参考点算"该往哪转"，而非只看第一个点
       rotate_to_heading_angular_vel: 1.6 # 原地转的角速度(rad/s)；相对 NeuPAN 避障时的瞬时急转更保守
-      max_angular_accel: 2.4             # 对齐 velocity_smoother 的 max_accel/max_decel theta，避免被削波变卡顿
+      max_angular_accel: 6.0             # 对齐 velocity_smoother 的 max_accel/max_decel theta，避免被削波变卡顿
       simulate_ahead_time: 0.0           # 0 = 关掉 shim 的原地转碰撞预测：窄走廊里车头朝墙时它会提前拦下、交给 NeuPAN 后死锁（2026-10-21 诊断）
       rotate_to_goal_heading: false      # 终点朝向不约束，沿用 yaw_goal_tolerance: 6.28 的既有设定
 
@@ -312,13 +312,13 @@ waypoint_follower:
 velocity_smoother:
   ros__parameters:
     use_sim_time: False
-    smoothing_frequency: 20.0
+    smoothing_frequency: 50.0
     scale_velocities: False
     feedback: "OPEN_LOOP"
     max_velocity: [0.4, 0.0, 3.2]
     min_velocity: [-0.4, 0.0, -3.2]
-    max_accel: [1.6, 0.0, 2.4]
-    max_decel: [-1.6, 0.0, -2.4]
+    max_accel: [1.6, 0.0, 6.0]
+    max_decel: [-1.6, 0.0, -6.0]
     odom_topic: "/odometry/filtered"
     odom_duration: 0.1
     deadband_velocity: [0.0, 0.0, 0.0]
