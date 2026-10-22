@@ -29,8 +29,9 @@ if [[ "$NAME" == "map" ]]; then
   echo "错误: \"map\" 是 app 保留给实时镜像的目录名，换一个名字。" >&2
   exit 1
 fi
-if [[ ! "$NAME" =~ ^[A-Za-z0-9_-]+$ ]]; then
-  echo "错误: 地图名只允许字母/数字/下划线/连字符。" >&2
+# 与后端 /saveMapEdit 同一规则：中文可以，/、..、空白不行
+if [[ "$NAME" == */* || "$NAME" == *..* || "$NAME" =~ [[:space:]] ]]; then
+  echo "错误: 地图名不能含 /、.. 或空白字符。" >&2
   exit 1
 fi
 # 必须在第 1 步序列化之前拦：否则旧图的位姿图已被覆盖，而后端会拒绝/沿用旧栅格，两者对不上
@@ -113,14 +114,13 @@ fi
 
 echo "==> [2/3] 请 app 后端从实时镜像 \"map\" 复制出 $NAME（pgm + yaml + topology + tiles）"
 # /saveMapEdit 加载 <name>.yaml 失败时会回退到 source_map_name —— 这正是新建地图的路径。
-# obstacle_edits_json 传空对象 = 不加画笔；topology 传一张空拓扑。
-TOPOLOGY=$(printf '{"map_name":"%s","map_property":{"support_controllers":[],"support_goal_checkers":["general_goal_checker"]},"points":[],"routes":[]}' "$NAME")
-curl -fsS -G "$BACKEND/saveMapEdit" \
-  --data-urlencode "session_id=save_map.sh" \
-  --data-urlencode "map_name=$NAME" \
-  --data-urlencode "source_map_name=map" \
-  --data-urlencode "topology_json=$TOPOLOGY" \
-  --data-urlencode "obstacle_edits_json={}"
+# POST JSON 正文；obstacle_edits 传空对象 = 不加画笔；topology 传一张空拓扑。
+# 正文用 python 拼，地图名里的中文/引号才能正确转义
+BODY=$(python3 -c 'import json, sys; n = sys.argv[1]; print(json.dumps({
+    "session_id": "save_map.sh", "map_name": n, "source_map_name": "map", "obstacle_edits": {},
+    "topology": {"map_name": n, "map_property": {"support_controllers": [],
+                 "support_goal_checkers": ["general_goal_checker"]}, "points": [], "routes": []}}))' "$NAME")
+curl -fsS -X POST -H 'Content-Type: application/json; charset=utf-8' --data-binary "$BODY" "$BACKEND/saveMapEdit"
 echo
 
 echo "==> [3/3] 设为当前地图"
