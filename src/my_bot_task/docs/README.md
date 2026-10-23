@@ -33,6 +33,11 @@ app 点拓扑点 ──> 后端发 /goal_pose ──> task_manager（独占订�
 
 `STOPPED` 不是死状态 —— 新召唤会立刻救活它。
 
+**失败与跳过**：一站最多试 `nav_retry_max + 1` 次（现为 2 次），或被看门狗判卡死 → 放弃这站，
+去下一站 / 回家，`last_error` 写「X」去不了，已跳过。**连续放弃 2 站、或回不了家** → 停在原地
+（`STOPPED`）、清空队列、写人话提示。发出取消后 5 s Nav2 不回音也进 `STOPPED`。
+任务层启动时会取消 Nav2 上残留的旧目标（崩溃 respawn 前发的，新进程不认识）。
+
 ---
 
 ## ⚠️ 不变量
@@ -49,10 +54,11 @@ app 点拓扑点 ──> 后端发 /goal_pose ──> task_manager（独占订�
 | **`home_pose` 不配就【整行注释掉】，不要写成 `[]`** | 空列表在 rclpy 里推断成 `NOT_SET` → 节点启动时抛 `ParameterUninitializedException` 直接崩 | `task_params.yaml` |
 | **待命点靠【名字】约定（`HOME`），不是拓扑的 `type` 字段** | 想当然去用 `type: ChargeStation` → app 的 Dart 侧写 `'ChargeStation'`、C++ 后端认 `'ChargingStation'`，**两边字符串对不上**，存盘往返会静默退化成 `NavGoal`（上游 bug，两侧的未知值 fallback 都不报错） | 上游 app 仓库：`nav_point.dart` 的 `NavPointType` vs `topology_map.hpp` 的同名枚举 |
 | **app 设置页里的 `NavGoalTopic` 能被用户改** | 改了 → `/goal_pose` 和 `/goal_pose/cancel` **全断，且没有任何报错**。召唤点了没反应 | 后端的 cancel 话题是 `NavGoalTopic + "/cancel"` 拼出来的 |
-| **`gui_app_settings.json` 的 `NavToPoseStatusTopic` 必须是 `/task/nav_status`** | 用回默认的 `/navigate_to_pose/_action/status` → 机器人一到达那次导航就 `succeeded`，**「停止导航」按钮当场消失**，用户再也点不到「我倒完了」。反过来，**不起任务层只跑 Nav2 时，app 的按钮和状态会一直空白** —— 那时要改回默认值 | 见下节 |
+| **`gui_app_settings.json` 的 `NavToPoseStatusTopic` 保持默认 `/navigate_to_pose/_action/status`** | 改成别的（比如旧文档写过的 `/task/nav_status`，**没有任何节点发布它**）→ 左下角「停止导航」按钮永远不出现。「我倒完了」在任务卡上，不靠这个按钮 | 见「「我倒完了」按钮为什么是独立的」 |
+| **看门狗判卡死走 `/task/stuck`，不走 `/goal_pose/cancel`** | 混用 → 卡死被当成用户手动跳过：不计入"连续放弃 2 站就停"，也不写提示，车会一站接一站地卡 | `nav_watchdog.py` 的 `stuck_pub`；`task_manager.py` 的 `_on_stuck` |
 | **导航点名字必须唯一** | 名字是任务的唯一标识（去重、队列、日志全靠它）。重名的点会**互相覆盖，只有最后一个生效**。（名字本身随便起，人名、中文都行） | `_reload_topology()` 检测到会 error 提示 |
 | **地图名不能叫 `map`** | 见 [docs/速查.md](../../../docs/速查.md) 的全局不变量表 | |
-| **低电不是新状态，是 `STOPPED` + `battery_low: true`** | 新增状态前端不认识，`last_error` 也只在 `STOPPED` 时显示 → 低电拒绝召唤时 app 上"点了没反应" | `task_manager.py` 的 `self.low_battery` 标志 |
+| **低电不是新状态，是 `STOPPED` + `battery_low: true`** | 新增状态前端不认识，`last_error` 只在 `STOPPED` / `IDLE` 时显示 → 低电拒绝召唤时 app 上"点了没反应" | `task_manager.py` 的 `self.low_battery` 标志 |
 | **电量数据断了 = 不触发低电；但已经锁住的低电不会因断数据解锁** | 前者防止固件回滚把车永久锁在 HOME；后者防止真没电的车重新接单。要放行只能 `POST /task/force_resume` | `task_manager.py` 的 `battery_stale` 处理；`battery_stale_sec` |
 
 ---
@@ -89,6 +95,9 @@ app 后端是**固定 schema 的 protobuf 桥**，只推激光/地图/里程计�
 | `/task/status` | GET | 当前状态 JSON（见下） |
 | `/task/skip` | POST | **「我倒完了」** = 跳过等待，立刻归位 |
 | `/task/cancel_all` | POST | 清空队列 |
+| `/task/stop` | POST | **「停车」**（右上角红色按钮）：取消 Nav2 上全部目标、清空队列、进 `STOPPED`（「已手动停车」）。再召唤一次恢复 |
+| `/task/dismiss` | POST | 清掉 `last_error`（待命时任务卡上那条提示的 ×；下一次召唤也会自动清） |
+| `/task/force_resume` | POST | 人工解除低电锁定 |
 
 CORS 全放行 —— Flutter Web 是从后端的 `:8080` 加载的，打 `:8090` 属于跨域。
 
@@ -128,6 +137,8 @@ app 原有的「停止导航」按钮（左下角）**只在导航中出现**（
 | `IDLE` / `STOPPED` | 无事可做 |
 
 要清空整个队列用 `/task/cancel_all`（也是 `std_msgs/Empty`）。
+要原地停、连队列一起清，用「停车」（`POST /task/stop`）。
+看门狗判卡死走另一条话题 `/task/stuck`（`std_msgs/Float32`，值是判定秒数）：这一站直接放弃、不重试，并计入连续放弃。
 
 ---
 
