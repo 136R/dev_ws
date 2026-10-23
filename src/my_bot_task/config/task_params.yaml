@@ -19,7 +19,7 @@ task_manager:
     dwell_sec: 20.0
 
     # 单次导航失败的重试次数（总尝试 = nav_retry_max + 1）。绝不无限重试。
-    nav_retry_max: 2
+    nav_retry_max: 1
     retry_backoff_sec: 2.0
 
     # false → 退化成"纯排队导航"，做完任务原地待命不回家

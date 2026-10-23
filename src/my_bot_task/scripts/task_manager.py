@@ -13,6 +13,9 @@ Nav2 的 NavigateToPose 是无状态的 —— 机器人跑到目标点之后什
                            ▼
                        [STOPPED]  ──新任务进队──> [NAVIGATING]
 
+【失败与跳过】一站最多试 nav_retry_max+1 次，或被看门狗判卡死（/task/stuck）→ 放弃这站，
+去下一站 / 回家；连续放弃 2 站、或回不了家 → 停在原地（STOPPED）等人。
+
 【为什么订阅 /goal_pose】
 app（ROS_Flutter_Gui_App）点拓扑点时，后端会发一个 PoseStamped 到 /goal_pose。
 task.launch.py 把 bt_navigator 的这个订阅 remap 到 /nav2/goal_pose，于是本节点
@@ -31,6 +34,8 @@ app 后端是【固定 schema 的 protobuf 桥】，消费不了 /task/status �
     POST /task/skip    → "我倒完了" = 跳过等待（等价于发 /goal_pose/cancel）
     POST /task/cancel_all → 清空队列
     POST /task/force_resume → 人工解除低电锁定（override_sec 内不再判低电）
+    POST /task/stop    → 「停车」：取消 Nav2 上全部目标、清空队列、进 STOPPED
+    POST /task/dismiss → 清掉 last_error（待命时任务卡上那条提示的 ×）
 
 前端拿到 state 才知道现在是不是 WAITING，才能【只在等待时】显示那个
 「我倒完了，回去吧」按钮 —— 语义唯一，不跟「停止导航」混。
@@ -59,6 +64,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import rclpy
 import tf2_ros
 from action_msgs.msg import GoalStatus
+from action_msgs.srv import CancelGoal
 from geometry_msgs.msg import PoseStamped
 from nav2_msgs.action import NavigateToPose
 from rclpy.action import ActionClient
@@ -66,9 +72,12 @@ from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from rclpy.time import Time
 from sensor_msgs.msg import BatteryState
-from std_msgs.msg import Empty, String
+from std_msgs.msg import Empty, Float32, String
 
 MAPS_ROOT = os.path.expanduser('~/.maps')
+
+# 发出取消后等 Nav2 回 CANCELED 的上限；到点不回就当它挂了，自己放手
+CANCEL_TIMEOUT_SEC = 5.0
 
 IDLE = 'IDLE'
 NAVIGATING = 'NAVIGATING'
@@ -131,7 +140,8 @@ class _TaskHttpHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):             # noqa: N802
         path = self.path.split('?')[0]
-        if path in ('/task/skip', '/task/cancel_all', '/task/force_resume'):
+        if path in ('/task/skip', '/task/cancel_all', '/task/force_resume',
+                    '/task/stop', '/task/dismiss'):
             self.server.node.pending_cmds.append(path)
             self._send(200, b'{"ok":true}')
         else:
@@ -212,6 +222,12 @@ class TaskManager(Node):
         self.dwell_deadline = None
         self.retry_timer = None
         self.tf_home = None           # TF 兜底抓到的待命点
+        # 目标编号：每发一个目标 +1，作废时也 +1。Nav2 的回调带着发出时的编号，
+        # 对不上就是旧目标的迟到回调，直接丢掉（否则会把车开回已取消的地方）
+        self.goal_seq = 0
+        self.cancel_timer = None      # 发出取消后等 CANCELED 的计时；非 None = 正在取消
+        self.cancel_reason = None     # 非 None = 看门狗判卡死，取消完按"放弃这站"处理
+        self.abandon_streak = 0       # 连续放弃了几站，到 2 就停下等人
 
         # 来自 Nav2 feedback（只信 distance_remaining，ETA 自己算，见 _on_feedback）
         self.distance_remaining = 0.0
@@ -245,6 +261,9 @@ class TaskManager(Node):
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
 
         self.nav = ActionClient(self, NavigateToPose, 'navigate_to_pose')
+        # 不带 goal_id 的取消 = 取消 Nav2 上全部目标（包括本节点重启前发的、已经没人管的）
+        self.cancel_all_cli = self.create_client(
+            CancelGoal, 'navigate_to_pose/_action/cancel_goal')
 
         # latched：后接的 `ros2 topic echo /task/status` 立刻就能拿到当前状态
         latched = QoSProfile(depth=1,
@@ -255,6 +274,7 @@ class TaskManager(Node):
         self.create_subscription(PoseStamped, '/goal_pose', self._on_goal, 10)
         self.create_subscription(Empty, '/goal_pose/cancel', self._on_cancel, 10)
         self.create_subscription(Empty, '/task/cancel_all', self._on_cancel_all, 10)
+        self.create_subscription(Float32, '/task/stuck', self._on_stuck, 10)
         self.create_subscription(BatteryState, '/battery_status', self._on_battery, 10)
 
         poll = float(self.get_parameter('poll_period_sec').value)
@@ -263,6 +283,8 @@ class TaskManager(Node):
         self.create_timer(1.0, self._publish_status)   # 让 dwell_remaining 能倒数
         self.create_timer(1.0, self._check_battery)
         self.create_timer(0.2, self._drain_http_cmds)  # 排空 HTTP 线程塞进来的命令
+        # 本节点崩溃 respawn 后，Nav2 上可能还挂着重启前的目标在开车，新进程不认识它
+        self.orphan_timer = self.create_timer(1.0, self._cancel_orphans)
 
         self._reload_topology()
         self._publish_status()
@@ -299,6 +321,11 @@ class TaskManager(Node):
                 self._on_cancel_all(Empty())
             elif cmd == '/task/force_resume':
                 self._force_resume()
+            elif cmd == '/task/stop':
+                self._on_stop()
+            elif cmd == '/task/dismiss':
+                self.last_error = ''
+                self._publish_status()
 
     # ================= 低电归位 =================
     #
@@ -625,6 +652,7 @@ class TaskManager(Node):
         self.get_logger().info(f'召唤「{name}」入队（队长 {len(self.queue)}）')
 
         if self.state in (IDLE, STOPPED):
+            self.last_error = ''            # 新的一轮开始，上一轮的提示作废
             self._advance()
         elif self.state == RETURNING:
             # 正在回家的路上被叫住 —— 取消归位，直接去新目标（不先回家）
@@ -635,6 +663,7 @@ class TaskManager(Node):
 
     def _on_cancel(self, _msg: Empty):
         """app 的「停止导航」按钮。cancel = 结束此刻正在做的这件事，然后往下走。"""
+        self.abandon_streak = 0             # 用户主动跳过，不算"去不了"
         if self.state == WAITING:
             self.get_logger().info('用户点了完成 → 提前结束等待')
             self._clear_dwell()
@@ -654,6 +683,45 @@ class TaskManager(Node):
         else:
             self._publish_status()
 
+    def _on_stuck(self, msg: Float32):
+        """nav_watchdog 判卡死：这一站不重试，直接放弃（和「停止导航」的跳过分开算）。"""
+        if self.state not in (NAVIGATING, RETURNING):
+            return
+        self.get_logger().warn(f'看门狗判卡死（{msg.data:.0f}s 没挪动）—— 放弃当前目标')
+        self.cancel_reason = f'路上卡住了（{msg.data:.0f} 秒没挪动）'
+        self._cancel_active()
+
+    def _on_stop(self):
+        """app 的「停车」按钮：原地停，队列清空，再召唤一次才恢复。"""
+        dropped = len(self.queue)
+        self.queue.clear()
+        self._clear_dwell()
+        self._cancel_all_nav()
+        self.last_error = '已手动停车'
+        self.get_logger().warn(f'app 点了「停车」—— 取消导航，丢弃 {dropped} 个待办')
+        self._enter(STOPPED)
+
+    def _cancel_all_nav(self):
+        """取消 Nav2 上此刻之前接受的全部目标。
+
+        stamp 填 now 而不是 0：只取消"此刻之前接受的"，之后紧接着发的新目标不受影响。
+        """
+        if not self.cancel_all_cli.service_is_ready():
+            self.get_logger().warn('navigate_to_pose 的取消服务不在 —— 没有可取消的目标')
+            return
+        req = CancelGoal.Request()
+        req.goal_info.stamp = self.get_clock().now().to_msg()
+        self.cancel_all_cli.call_async(req)
+
+    def _cancel_orphans(self):
+        """启动后 Nav2 一就绪就清一次旧目标，只做一次。"""
+        if not self.cancel_all_cli.service_is_ready():
+            return
+        self.destroy_timer(self.orphan_timer)
+        self.orphan_timer = None
+        self.get_logger().info('清掉 Nav2 上残留的旧目标（本节点重启前发的）')
+        self._cancel_all_nav()
+
     # ================= 状态机 =================
 
     def _halt_for_map_switch(self):
@@ -664,7 +732,7 @@ class TaskManager(Node):
         self.map_switched = True
         self.tf_home = None
         if self.goal_handle is not None:
-            self.goal_handle.cancel_goal_async()   # 迟到的 CANCELED 回调进 _advance，被 map_switched 拦住
+            self.goal_handle.cancel_goal_async()   # 下面 _enter(STOPPED) 作废编号，迟到的 CANCELED 直接丢掉
         self._clear_retry()
         self._clear_dwell()
         self.last_error = f'已切换地图，任务已取消（丢弃 {dropped} 个待办）—— 请在 app 上重定位'
@@ -674,6 +742,7 @@ class TaskManager(Node):
     def _advance(self):
         """一件事做完了 —— 决定下一步。"""
         self._clear_dwell()
+        self._invalidate()
         self.retries = 0
 
         if self.map_switched:
@@ -732,7 +801,8 @@ class TaskManager(Node):
         if state in (IDLE, STOPPED):
             self.current = None
             self.active_kind = None
-            self.goal_handle = None
+            self.abandon_streak = 0
+            self._invalidate()
         if state in (IDLE, STOPPED, WAITING):
             self.distance_remaining = 0.0
             self.eta_sec = 0.0
@@ -760,6 +830,13 @@ class TaskManager(Node):
             self.retry_timer = self.create_timer(1.0, lambda: self._do_retry(task))
             return
 
+        # Nav2 刚就绪、启动清旧目标的定时器还没轮到 —— 先清，再发（stamp 保证新目标不被误杀）
+        if self.orphan_timer is not None:
+            self._cancel_orphans()
+
+        self.goal_seq += 1
+        seq = self.goal_seq
+
         goal = NavigateToPose.Goal()
         goal.pose.header.frame_id = 'map'
         goal.pose.header.stamp = self.get_clock().now().to_msg()
@@ -772,10 +849,10 @@ class TaskManager(Node):
             f'{"归位 →" if self.active_kind == "home" else "前往"}「{task["name"]}」'
             f'({task["x"]:.2f}, {task["y"]:.2f})')
         self.nav.send_goal_async(
-            goal, feedback_callback=self._on_feedback
-        ).add_done_callback(self._on_accepted)
+            goal, feedback_callback=lambda m: self._on_feedback(m, seq)
+        ).add_done_callback(lambda f: self._on_accepted(f, seq))
 
-    def _on_feedback(self, msg):
+    def _on_feedback(self, msg, seq):
         """Nav2 的导航反馈 → 剩余距离与 ETA。
 
         ⚠️ 刻意【不用】feedback 里的 estimated_time_remaining：Nav2 算的是
@@ -785,13 +862,25 @@ class TaskManager(Node):
         distance_remaining 是剩余【路径长度】，很稳，只用它；ETA 自己按
         eta_speed_mps 折算，再做一次指数平滑，免得随路径重规划抖动。
         """
+        if seq != self.goal_seq:
+            return
         fb = msg.feedback
         self.distance_remaining = float(fb.distance_remaining)
         raw = self.distance_remaining / self.eta_speed
         # 首帧直接取值，之后 EMA。系数 0.3：够跟手，又不会一抖一跳
         self.eta_sec = raw if self.eta_sec <= 0.0 else 0.7 * self.eta_sec + 0.3 * raw
 
-    def _on_accepted(self, future):
+    def _on_accepted(self, future, seq):
+        if seq != self.goal_seq:
+            # 发出后已被作废（取消 / 停车 / 切图）的目标。被接受了就立刻取消，别让它开车
+            try:
+                handle = future.result()
+            except Exception:  # noqa: BLE001
+                return
+            if handle.accepted:
+                self.get_logger().warn('作废的目标被 Nav2 接受了 —— 立刻取消')
+                handle.cancel_goal_async()
+            return
         try:
             handle = future.result()
         except Exception as exc:  # noqa: BLE001 - action 通信失败不该拖垮节点
@@ -801,9 +890,11 @@ class TaskManager(Node):
             self._fail('Nav2 拒绝了目标')
             return
         self.goal_handle = handle
-        handle.get_result_async().add_done_callback(self._on_result)
+        handle.get_result_async().add_done_callback(lambda f: self._on_result(f, seq))
 
-    def _on_result(self, future):
+    def _on_result(self, future, seq):
+        if seq != self.goal_seq:
+            return
         try:
             status = future.result().status
         except Exception as exc:  # noqa: BLE001
@@ -811,9 +902,12 @@ class TaskManager(Node):
             return
 
         self.goal_handle = None
+        canceling = self.cancel_timer is not None
+        self._clear_cancel_timer()
 
         if status == GoalStatus.STATUS_SUCCEEDED:
             self.retries = 0
+            self.abandon_streak = 0
             if self.active_kind == 'home':
                 if self.low_battery:
                     self.last_error = (
@@ -821,6 +915,10 @@ class TaskManager(Node):
                         f'充电后自动恢复')
                     self.get_logger().warn(f'{self.last_error} —— 进 STOPPED，拒绝新召唤')
                     self._enter(STOPPED)
+                elif self.queue:
+                    # 归位途中被召唤，取消晚到一步、Nav2 先回了成功 —— 召唤还在队列里
+                    self.get_logger().info('到家的同时来了召唤 → 接着去')
+                    self._advance()
                 else:
                     self.get_logger().info('已归位，待命中')
                     self._enter(IDLE)
@@ -831,19 +929,27 @@ class TaskManager(Node):
                 self._start_dwell()
             return
 
-        if status == GoalStatus.STATUS_CANCELED:
-            # 两种来源：用户按了停止 / 归位途中被新召唤打断。都是"这件事结束了，往下走"
-            if self.active_kind == 'home' and not self.queue:
-                self.get_logger().info('归位被取消 —— 原地停住')
-                self._enter(STOPPED)
-            else:
-                self._advance()
+        # 我们发过取消时，Nav2 也可能回 ABORTED（取消和失败撞在一起）—— 一律按取消处理，不重试
+        if status == GoalStatus.STATUS_CANCELED or canceling:
+            self._on_canceled()
             return
 
         self._fail(f'导航失败 (GoalStatus={status})')
 
+    def _on_canceled(self):
+        """当前这件事被取消完了 —— 往下走。"""
+        reason, self.cancel_reason = self.cancel_reason, None
+        if reason:
+            self._abandon(reason)
+            return
+        # 来源：用户按了「停止导航」/ 归位途中被新召唤打断 / 低电。都是"这件事结束了，往下走"
+        if self.active_kind == 'home' and not self.queue:
+            self.get_logger().info('归位被取消 —— 原地停住')
+            self._enter(STOPPED)
+        else:
+            self._advance()
+
     def _fail(self, reason):
-        self.last_error = reason
         self.retries += 1
         if self.retries <= self.nav_retry_max:
             self.get_logger().warn(
@@ -856,11 +962,28 @@ class TaskManager(Node):
             return
 
         self.get_logger().error(f'{reason} —— 重试耗尽，放弃「{self.current["name"]}」')
+        self._abandon('去不了')
+
+    def _abandon(self, why):
+        """放弃当前这站。连续放弃到第 2 站、或回不了家 → 停在原地等人，队列清空。"""
         if self.active_kind == 'home':
-            # 回不了家就别原地空转了，停住等人
-            self._enter(STOPPED)
-        else:
-            self._advance()
+            self._halt_stuck('回不了待命点，车已停在原地，请检查')
+            return
+        name = self.current['name'] if self.current else '?'
+        self.abandon_streak += 1
+        if self.abandon_streak >= 2:
+            self._halt_stuck(f'「{name}」也去不了，车已停在原地，请检查')
+            return
+        self.last_error = f'「{name}」{why}，已跳过'
+        self.get_logger().warn(self.last_error)
+        self._advance()
+
+    def _halt_stuck(self, why):
+        dropped = len(self.queue)
+        self.queue.clear()
+        self.last_error = why
+        self.get_logger().error(f'{why}（丢弃 {dropped} 个待办）')
+        self._enter(STOPPED)
 
     def _do_retry(self, task):
         self._clear_retry()
@@ -871,12 +994,32 @@ class TaskManager(Node):
             self.destroy_timer(self.retry_timer)
             self.retry_timer = None
 
+    def _invalidate(self):
+        """作废当前目标：之后它的接受 / 结果 / 进度回调一律丢掉，重试也不再发。"""
+        self.goal_seq += 1
+        self.goal_handle = None
+        self.cancel_reason = None
+        self._clear_retry()
+        self._clear_cancel_timer()
+
     def _cancel_active(self):
         if self.goal_handle is None:
-            self._advance()
+            # 没有活着的目标（等重试的间隙 / 目标刚发出还没被接受）：
+            # 直接当取消完成处理，_advance() 里的 _invalidate() 会掐掉重试和那个在途目标
+            self._on_canceled()
             return
         self.goal_handle.cancel_goal_async()
-        # 不在这里改状态 —— 等 _on_result 收到 STATUS_CANCELED 再走 _advance()
+        # 不在这里改状态 —— 等 _on_result 收到 STATUS_CANCELED 再往下走；Nav2 不回就靠计时放手
+        self._clear_cancel_timer()
+        self.cancel_timer = self.create_timer(CANCEL_TIMEOUT_SEC, self._on_cancel_timeout)
+
+    def _on_cancel_timeout(self):
+        self._halt_stuck('导航没响应停止命令，任务已放弃，请检查车是否还在动')
+
+    def _clear_cancel_timer(self):
+        if self.cancel_timer is not None:
+            self.destroy_timer(self.cancel_timer)
+            self.cancel_timer = None
 
     # ================= 等待 =================
 

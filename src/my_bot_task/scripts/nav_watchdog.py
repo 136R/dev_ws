@@ -15,10 +15,12 @@ stuck_timeout_sec 都没挪动 min_progress_m 以上 —— 判定卡死。
 
 卡死后【不】尝试去够 Nav2 内部的恢复行为（那是它自己 BT 里 RecoveryFallback 的职责，
 本节点够不着也没必要够，且默认阈值远大于那套恢复动作的正常耗时，不会撞车）。
-只发一个 /goal_pose/cancel，复用 task_manager 已经验证过的 cancel 语义：
-    NAVIGATING 时 = 取消当前任务、丢弃、去下一个
-    RETURNING  时 = 取消归位、进 STOPPED
-这样卡死至少会被"显式地结束"，而不是无限期静默挂起。
+只发一个 /task/stuck（Float32，值 = 判定用的秒数），由 task_manager 处理：
+    NAVIGATING 时 = 放弃这一站（不重试），去下一站 / 回家；连续放弃 2 站就停下等人
+    RETURNING  时 = 回不了家，停在原地等人
+不发 /goal_pose/cancel：那是 app「停止导航」的"跳过"语义，不计入连续放弃、也不提示。
+只发一次就够 —— task_manager 发出取消后 5s 没回音会自己放手，状态一定会离开
+NAVIGATING/RETURNING，这里的 triggered 随之复位。
 """
 
 import json
@@ -28,7 +30,7 @@ import rclpy
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
-from std_msgs.msg import Empty, String
+from std_msgs.msg import Float32, String
 
 ACTIVE_STATES = ('NAVIGATING', 'RETURNING')
 
@@ -60,7 +62,7 @@ class NavWatchdog(Node):
                              durability=DurabilityPolicy.TRANSIENT_LOCAL,
                              reliability=ReliabilityPolicy.RELIABLE)
         self.status_pub = self.create_publisher(String, '/nav_watchdog/status', latched)
-        self.cancel_pub = self.create_publisher(Empty, '/goal_pose/cancel', 10)
+        self.stuck_pub = self.create_publisher(Float32, '/task/stuck', 10)
 
         self.create_subscription(String, '/task/status', self._on_task_status, latched)
         self.create_subscription(Odometry, '/odometry/filtered', self._on_odom, 10)
@@ -134,9 +136,9 @@ class NavWatchdog(Node):
         self.triggered = True
         self.get_logger().error(
             f'「{self.task_name or "?"}」{stuck_timeout:.0f}s 内位移 < '
-            f'{min_progress:.2f}m —— 判定卡死，发 /goal_pose/cancel 让任务层放弃')
+            f'{min_progress:.2f}m —— 判定卡死，发 /task/stuck 让任务层放弃这一站')
         self._publish_status('STUCK', stalled_for)
-        self.cancel_pub.publish(Empty())
+        self.stuck_pub.publish(Float32(data=float(stuck_timeout)))
 
     def _publish_status(self, status, stalled_for):
         msg = String()
