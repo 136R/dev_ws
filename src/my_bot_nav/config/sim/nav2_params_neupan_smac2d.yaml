@@ -157,6 +157,9 @@ local_costmap:
           clearing: True
           marking: True
           data_type: "LaserScan"
+          # 雷达链断流 0.5s（C1 10Hz 连丢 5 帧）→ 局部图过期 → controller_server 停出速度，
+          # smoother velocity_timeout 后归零。不设（默认 0）= 永远算新鲜，雷达断了车照开
+          expected_update_rate: 0.5
           # ⚠️ 必须 true。laser_filters 把超量程点替换成 +inf，默认 false 会整条丢弃
           # inf 射线，而清除障碍靠射线穿过格子 → 障碍标了永远清不掉。
           inf_is_valid: true
